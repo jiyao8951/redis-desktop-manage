@@ -3,6 +3,7 @@ use std::sync::OnceLock;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use redis::aio::ConnectionManager;
+use serde::{Deserialize, Serialize};
 use tokio::sync::Semaphore;
 
 use crate::error::{AppError, AppResult};
@@ -123,6 +124,39 @@ fn is_supported(key_type: &str) -> bool {
     matches!(key_type, "string" | "list" | "set" | "zset" | "hash" | "stream")
 }
 
+/// Cursor for HSCAN/SSCAN pages. SCAN only returns an opaque server cursor, so
+/// when a batch is larger than the requested page size the surplus rows travel
+/// back to the client inside this cursor instead of being dropped.
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ScanCursorState {
+    /// Server cursor for the *next* HSCAN/SSCAN call.
+    scan: String,
+    /// Rows read from the server but not yet emitted to the UI.
+    rest: Vec<Vec<ValueCell>>,
+}
+
+fn decode_scan_cursor(cursor: &str) -> ScanCursorState {
+    if cursor.is_empty() || cursor == "0" {
+        return ScanCursorState {
+            scan: "0".into(),
+            rest: Vec::new(),
+        };
+    }
+    serde_json::from_str(cursor).unwrap_or_else(|_| ScanCursorState {
+        scan: cursor.to_string(),
+        rest: Vec::new(),
+    })
+}
+
+fn encode_scan_cursor(state: &ScanCursorState) -> String {
+    if state.scan == "0" && state.rest.is_empty() {
+        "0".into()
+    } else {
+        serde_json::to_string(state).unwrap_or_else(|_| state.scan.clone())
+    }
+}
+
 pub async fn key_value_info(
     conn: &mut ConnectionManager,
     config: &ConnectionConfig,
@@ -182,11 +216,16 @@ pub async fn read_string_chunk(
     key: &str,
     offset: u64,
     limit: u32,
+    known_total: Option<u64>,
 ) -> AppResult<KeyValueChunk> {
     let _permit = limiter().acquire().await.map_err(|_| AppError::Timeout)?;
     let limit = clamp_chunk(limit);
-    let total = command_i64(conn, config, "STRLEN", &[key]).await?;
-    let total = total.max(0) as u64;
+    // Chunked reads previously sent STRLEN for every chunk; the caller already
+    // knows the length after the first chunk, so reuse it when provided.
+    let total = match known_total {
+        Some(total) => total,
+        None => command_i64(conn, config, "STRLEN", &[key]).await?.max(0) as u64,
+    };
 
     let payload = if offset >= total {
         Vec::new()
@@ -250,11 +289,17 @@ pub async fn read_value_page(
                 } else {
                     (start as i64, (start + u64::from(count) - 1).min(total - 1) as i64)
                 };
-                let values = query_with_timeout(
+                let mut values = query_with_timeout(
                     timeout,
                     redis::cmd("LRANGE").arg(key).arg(from).arg(to).query_async::<Vec<redis::Value>>(conn),
                 )
                 .await?;
+                // LRANGE always returns head-to-tail order. Reversing here keeps
+                // the UI row index aligned with the tail-relative position used
+                // by LSET/LREM (`-(row + 1)`).
+                if reverse {
+                    values.reverse();
+                }
                 values
                     .iter()
                     .enumerate()
@@ -278,33 +323,86 @@ pub async fn read_value_page(
         }
         "hash" | "set" => {
             let load_command = if key_type == "hash" { "HSCAN" } else { "SSCAN" };
-            let reply = query_with_timeout(
-                timeout,
-                redis::cmd(load_command)
-                    .arg(key)
-                    .arg(cursor)
-                    .arg("COUNT")
-                    .arg(count)
-                    .query_async::<redis::Value>(conn),
-            )
-            .await?;
+            let mut state = decode_scan_cursor(cursor);
+            let mut rows: Vec<ValueRow> = Vec::new();
+            let mut iterations = 0u32;
 
-            let mut next_cursor = "0".to_string();
-            let mut payload = Vec::new();
-            if let redis::Value::Array(parts) = reply {
-                let mut iterator = parts.into_iter();
-                if let Some(cursor_value) = iterator.next() {
-                    next_cursor =
-                        String::from_utf8_lossy(&as_bytes(&cursor_value).unwrap_or_default())
-                            .into_owned();
+            // SCAN treats COUNT as a hint, so a single reply can contain far
+            // more rows than the page size. Emit exactly `count` rows and keep
+            // the surplus in the cursor for the next request.
+            while rows.len() < count as usize {
+                while rows.len() < count as usize && !state.rest.is_empty() {
+                    let take = (count as usize - rows.len()).min(state.rest.len());
+                    let drained: Vec<Vec<ValueCell>> = state.rest.drain(..take).collect();
+                    for columns in drained {
+                        rows.push(ValueRow {
+                            row: start + rows.len() as u64,
+                            columns,
+                        });
+                    }
                 }
-                if let Some(items) = iterator.next() {
-                    payload = match items {
-                        redis::Value::Array(values) => values,
-                        redis::Value::Set(values) => values,
-                        _ => Vec::new(),
-                    };
+                if rows.len() >= count as usize || (state.scan == "0" && iterations > 0) {
+                    break;
                 }
+                iterations += 1;
+                if iterations > 1000 {
+                    break;
+                }
+
+                let want = (count as usize).saturating_sub(rows.len()).max(1) as u32;
+                let reply = query_with_timeout(
+                    timeout,
+                    redis::cmd(load_command)
+                        .arg(key)
+                        .arg(&state.scan)
+                        .arg("COUNT")
+                        .arg(want)
+                        .query_async::<redis::Value>(conn),
+                )
+                .await?;
+
+                let mut next_cursor = "0".to_string();
+                let mut payload = Vec::new();
+                if let redis::Value::Array(parts) = reply {
+                    let mut iterator = parts.into_iter();
+                    if let Some(cursor_value) = iterator.next() {
+                        next_cursor =
+                            String::from_utf8_lossy(&as_bytes(&cursor_value).unwrap_or_default())
+                                .into_owned();
+                    }
+                    if let Some(items) = iterator.next() {
+                        payload = match items {
+                            redis::Value::Array(values) => values,
+                            redis::Value::Set(values) => values,
+                            _ => Vec::new(),
+                        };
+                    }
+                }
+
+                // HSCAN returns field/value pairs; SSCAN returns one member per
+                // element. Both replies are flat arrays in RESP2.
+                let fetched: Vec<Vec<ValueCell>> = if key_type == "hash" {
+                    pair_list(redis::Value::Array(payload))
+                        .into_iter()
+                        .map(|(field, value)| {
+                            vec![
+                                encode_bytes(as_bytes(&field).unwrap_or_default().as_slice()),
+                                encode_bytes(as_bytes(&value).unwrap_or_default().as_slice()),
+                            ]
+                        })
+                        .collect()
+                } else {
+                    payload
+                        .iter()
+                        .map(|member| {
+                            vec![encode_bytes(
+                                as_bytes(member).unwrap_or_default().as_slice(),
+                            )]
+                        })
+                        .collect()
+                };
+                state.rest.extend(fetched);
+                state.scan = next_cursor;
             }
 
             let total = command_i64(
@@ -317,43 +415,15 @@ pub async fn read_value_page(
             .ok()
             .map(|value| value.max(0) as u64);
 
-            // HSCAN returns field/value pairs; SSCAN returns one member per
-            // element. Both replies are flat arrays in RESP2.
-            let rows = if key_type == "hash" {
-                let pairs = pair_list(redis::Value::Array(payload));
-                pairs
-                    .iter()
-                    .enumerate()
-                    .map(|(index, (field, value))| ValueRow {
-                        row: start + index as u64,
-                        columns: vec![
-                            encode_bytes(as_bytes(field).unwrap_or_default().as_slice()),
-                            encode_bytes(as_bytes(value).unwrap_or_default().as_slice()),
-                        ],
-                    })
-                    .collect()
-            } else {
-                payload
-                    .iter()
-                    .enumerate()
-                    .map(|(index, member)| ValueRow {
-                        row: start + index as u64,
-                        columns: vec![encode_bytes(
-                            as_bytes(member).unwrap_or_default().as_slice(),
-                        )],
-                    })
-                    .collect()
-            };
-
             ValuePage {
                 key: key.to_string(),
                 key_type: key_type.to_string(),
-                cursor: next_cursor.clone(),
+                cursor: encode_scan_cursor(&state),
                 start,
                 page_size: count,
                 rows,
                 total,
-                done: next_cursor == "0",
+                done: state.scan == "0" && state.rest.is_empty(),
                 columns: if key_type == "hash" {
                     vec!["rowNumber".into(), "key".into(), "value".into()]
                 } else {
@@ -490,4 +560,38 @@ pub async fn read_value_page(
     Ok(page)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scan_cursor_round_trips_leftover_rows() {
+        let state = ScanCursorState {
+            scan: "42".into(),
+            rest: vec![vec![ValueCell {
+                encoding: "utf8".into(),
+                payload: "field".into(),
+            }]],
+        };
+        let encoded = encode_scan_cursor(&state);
+        let decoded = decode_scan_cursor(&encoded);
+        assert_eq!(decoded.scan, "42");
+        assert_eq!(decoded.rest.len(), 1);
+        assert_eq!(decoded.rest[0][0].payload, "field");
+    }
+
+    #[test]
+    fn scan_cursor_zero_is_plain() {
+        assert_eq!(encode_scan_cursor(&decode_scan_cursor("0")), "0");
+        assert_eq!(encode_scan_cursor(&decode_scan_cursor("")), "0");
+    }
+
+    #[test]
+    fn scan_cursor_preserves_unknown_legacy_values() {
+        // A plain server cursor (not produced by this build) still works.
+        let decoded = decode_scan_cursor("123");
+        assert_eq!(decoded.scan, "123");
+        assert!(decoded.rest.is_empty());
+    }
+}
 

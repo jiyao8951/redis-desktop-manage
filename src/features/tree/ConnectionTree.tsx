@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
 import Dialog from "../../components/ui/Dialog";
 import Button from "../../components/ui/Button";
@@ -25,6 +25,18 @@ import AddKeyDialog from "../value/AddKeyDialog";
 import { BulkTtlDialog, CopyKeysDialog } from "./BulkDialogs";
 
 const ROW_HEIGHT = 28;
+/** Upper bounds for the two caches that otherwise grow with every scan page. */
+const META_CACHE_LIMIT = 5000;
+const NS_CACHE_LIMIT = 200;
+
+/** Drops the oldest cache entries; JS object key order is insertion order. */
+function capRecord<T>(record: Record<string, T>, limit: number): Record<string, T> {
+  const keys = Object.keys(record);
+  if (keys.length <= limit) return record;
+  const capped: Record<string, T> = {};
+  for (const key of keys.slice(keys.length - limit)) capped[key] = record[key];
+  return capped;
+}
 
 function emptyServerView(): ServerView {
   return { loaded: false, loading: false, error: null, expanded: false, databases: [] };
@@ -126,6 +138,8 @@ export default function ConnectionTree({
   const [rootDropActive, setRootDropActive] = useState(false);
 
   const viewportRef = useRef<HTMLDivElement>(null);
+  const scrollFrame = useRef<number | null>(null);
+  const pendingScrollTop = useRef(0);
   const configRequests = useRef(new Map<string, Promise<ConnectionConfig>>());
   const pendingMeta = useRef(new Set<string>());
   const failedMeta = useRef(new Set<string>());
@@ -161,6 +175,23 @@ export default function ConnectionTree({
     setViewportHeight(el.clientHeight);
     return () => ro.disconnect();
   }, []);
+
+  useEffect(
+    () => () => {
+      if (scrollFrame.current !== null) window.cancelAnimationFrame(scrollFrame.current);
+    },
+    [],
+  );
+
+  /** Coalesces scroll events into at most one state update per animation frame. */
+  const handleScroll = (top: number) => {
+    pendingScrollTop.current = top;
+    if (scrollFrame.current !== null) return;
+    scrollFrame.current = window.requestAnimationFrame(() => {
+      scrollFrame.current = null;
+      setScrollTop(pendingScrollTop.current);
+    });
+  };
 
   useEffect(() => {
     // Connection configs changed (save/delete/duplicate/import): drop cached
@@ -311,11 +342,18 @@ export default function ConnectionTree({
     });
   };
 
+  /**
+   * Scans the database root from cursor 0. `reset` replaces the loaded page
+   * (explicit reload / new filter); `preserve` keeps the already loaded keys
+   * and namespace pages visible and merges the new page into them, which is
+   * what the Live Update refresh needs.
+   */
   const loadDb = async (
     connectionId: string,
     dbIndex: number,
     reset: boolean,
     filterOverride?: string,
+    preserve = false,
   ) => {
     const dbKey = dbKeyOf(connectionId, dbIndex);
     const current = servers[connectionId]?.databases.find((db) => db.index === dbIndex);
@@ -325,11 +363,14 @@ export default function ConnectionTree({
       (reset || !current.loaded
         ? (configs[connectionId]?.keysPattern ?? current.filter)
         : current.filter);
+    const replace = reset && !preserve;
 
     updateDb(connectionId, dbIndex, (db) => ({
       ...db,
       loading: true,
-      loaded: db.loaded && !reset,
+      // Keep the existing rows on screen while the refresh is in flight
+      // instead of collapsing the database and losing the loaded pages.
+      loaded: db.loaded,
       expanded: true,
       filter: reset ? filter : db.filter,
     }));
@@ -342,13 +383,13 @@ export default function ConnectionTree({
         loaded: true,
         expanded: true,
         filter,
-        rootKeys: reset
+        rootKeys: replace
           ? page.keys.slice(0, settings.scanLimit)
           : mergeUnique(db.rootKeys.slice(), page.keys, settings.scanLimit),
         cursor: page.cursor,
-        nsData: reset ? {} : db.nsData,
+        nsData: replace ? {} : db.nsData,
       }));
-      if (reset) {
+      if (reset && !preserve) {
         // The original "reopen namespaces on reload" option keeps previously
         // expanded namespaces open (and re-reads their own SCAN page).
         if (settings.reopenNamespacesOnReload) {
@@ -370,6 +411,11 @@ export default function ConnectionTree({
       // configured limit.
       if (liveDbsRef.current.has(dbKey) && current.keys > settings.liveUpdateKeysLimit) {
         liveDbsRef.current.delete(dbKey);
+        const timer = liveTimers.current[dbKey];
+        if (timer) {
+          window.clearTimeout(timer);
+          delete liveTimers.current[dbKey];
+        }
         setLiveDbs((prev) => {
           const next = new Set(prev);
           next.delete(dbKey);
@@ -395,7 +441,9 @@ export default function ConnectionTree({
   liveRefreshRef.current = (connectionId, dbIndex) => {
     const db = servers[connectionId]?.databases.find((item) => item.index === dbIndex);
     if (!db || !db.loaded) return;
-    void loadDb(connectionId, dbIndex, true, db.filter);
+    // preserve: a Live Update tick must not blank the tree or drop the pages
+    // and namespace data the user already loaded.
+    void loadDb(connectionId, dbIndex, true, db.filter, true);
   };
 
   const loadMore = async (row: Extract<TreeRowData, { kind: "loadmore" }>) => {
@@ -435,16 +483,19 @@ export default function ConnectionTree({
         const existing = d.nsData[row.namespace as string];
         return {
           ...d,
-          nsData: {
-            ...d.nsData,
-            [row.namespace as string]: {
-              ...existing,
-              loading: false,
-              loaded: true,
-              keys: mergeUnique(existing.keys.slice(), page.keys, settings.scanLimit),
-              cursor: page.cursor,
+          nsData: capRecord(
+            {
+              ...d.nsData,
+              [row.namespace as string]: {
+                ...existing,
+                loading: false,
+                loaded: true,
+                keys: mergeUnique(existing.keys.slice(), page.keys, settings.scanLimit),
+                cursor: page.cursor,
+              },
             },
-          },
+            NS_CACHE_LIMIT,
+          ),
         };
       });
     } catch (e) {
@@ -486,15 +537,18 @@ export default function ConnectionTree({
       const page = await scanDb(connectionId, dbIndex, "0", filter, fullPath);
       updateDb(connectionId, dbIndex, (d) => ({
         ...d,
-        nsData: {
-          ...d.nsData,
-          [fullPath]: {
-            keys: page.keys.slice(0, settings.scanLimit),
-            cursor: page.cursor,
-            loaded: true,
-            loading: false,
+        nsData: capRecord(
+          {
+            ...d.nsData,
+            [fullPath]: {
+              keys: page.keys.slice(0, settings.scanLimit),
+              cursor: page.cursor,
+              loaded: true,
+              loading: false,
+            },
           },
-        },
+          NS_CACHE_LIMIT,
+        ),
       }));
     } catch (e) {
       updateDb(connectionId, dbIndex, (d) => ({
@@ -547,112 +601,126 @@ export default function ConnectionTree({
     setFilterBusy(null);
   };
 
-  const hasMore = (db: DbView, namespace: string | null): boolean => {
-    if (namespace === null) {
-      return db.cursor !== "0" && db.rootKeys.length < settings.scanLimit;
-    }
-    const ns = db.nsData[namespace];
-    return Boolean(ns && ns.cursor !== "0" && ns.keys.length < settings.scanLimit);
-  };
-
   // ---- row construction -------------------------------------------------
+  // Memoized: scrolling and selection changes must not rebuild the tree model.
+  // Rebuilding sorted every loaded key (`buildChildren` -> `keys.slice().sort()`)
+  // on each scroll tick, which froze the sidebar for large databases.
+  const rows = useMemo<TreeRowData[]>(() => {
+    const next: TreeRowData[] = [];
+    const knownGroups = new Set(groups.map((group) => group.id));
 
-  const rows: TreeRowData[] = [];
-  const knownGroups = new Set(groups.map((group) => group.id));
+    const localHasMore = (db: DbView, namespace: string | null): boolean => {
+      if (namespace === null) return db.cursor !== "0" && db.rootKeys.length < settings.scanLimit;
+      const ns = db.nsData[namespace];
+      return Boolean(ns && ns.cursor !== "0" && ns.keys.length < settings.scanLimit);
+    };
 
-  const addConnectionRows = (connection: ConnectionSummary, depth: number) => {
-    const view = servers[connection.id] ?? emptyServerView();
-    rows.push({ kind: "server", id: `server:${connection.id}`, connection, view, depth });
-    if (!view.expanded || !view.loaded) return;
+    const addConnectionRows = (connection: ConnectionSummary, depth: number) => {
+      const view = servers[connection.id] ?? emptyServerView();
+      next.push({ kind: "server", id: `server:${connection.id}`, connection, view, depth });
+      if (!view.expanded || !view.loaded) return;
 
-    for (const db of view.databases) {
-      const dbKey = dbKeyOf(connection.id, db.index);
-      const dbDepth = depth + 1;
-      rows.push({ kind: "database", id: `db:${dbKey}`, connection, db, depth: dbDepth });
-      if (filterDb === dbKey) {
-        rows.push({
-          kind: "filter",
-          id: `filter:${dbKey}`,
-          connection,
-          db,
-          depth: dbDepth + 1,
-        });
-      }
-      if (!db.expanded || !db.loaded) continue;
-
-      const separator = configs[connection.id]?.namespaceSeparator ?? ":";
-      const tree = buildChildren(
-        dbKey,
-        "",
-        db.rootKeys,
-        separator,
-        settings.namespacedKeysShortName,
-        db.nsData,
-        settings.showNamespacesOnTop,
-      );
-      const flat: FlatKeyRow[] = flattenNodes(tree, expandedNs, (namespace) =>
-        hasMore(db, namespace),
-      );
-      for (const row of flat) {
-        if (row.rowKind === "node") {
-          rows.push({
-            kind: "node",
-            id: row.node.id,
-            connectionId: connection.id,
-            dbKey,
-            dbIndex: db.index,
-            node: row.node,
-            depth: dbDepth + 1 + row.depth,
+      for (const db of view.databases) {
+        const dbKey = dbKeyOf(connection.id, db.index);
+        const dbDepth = depth + 1;
+        next.push({ kind: "database", id: `db:${dbKey}`, connection, db, depth: dbDepth });
+        if (filterDb === dbKey) {
+          next.push({
+            kind: "filter",
+            id: `filter:${dbKey}`,
+            connection,
+            db,
+            depth: dbDepth + 1,
           });
-        } else {
-          rows.push({
+        }
+        if (!db.expanded || !db.loaded) continue;
+
+        const separator = configs[connection.id]?.namespaceSeparator ?? ":";
+        const tree = buildChildren(
+          dbKey,
+          "",
+          db.rootKeys,
+          separator,
+          settings.namespacedKeysShortName,
+          db.nsData,
+          settings.showNamespacesOnTop,
+        );
+        const flat: FlatKeyRow[] = flattenNodes(tree, expandedNs, (namespace) =>
+          localHasMore(db, namespace),
+        );
+        for (const row of flat) {
+          if (row.rowKind === "node") {
+            next.push({
+              kind: "node",
+              id: row.node.id,
+              connectionId: connection.id,
+              dbKey,
+              dbIndex: db.index,
+              node: row.node,
+              depth: dbDepth + 1 + row.depth,
+            });
+          } else {
+            next.push({
+              kind: "loadmore",
+              id: row.id,
+              connectionId: connection.id,
+              dbKey,
+              dbIndex: db.index,
+              namespace: row.namespace,
+              depth: dbDepth + 1 + row.depth,
+            });
+          }
+        }
+        if (localHasMore(db, null)) {
+          next.push({
             kind: "loadmore",
-            id: row.id,
+            id: `more:${dbKey}`,
             connectionId: connection.id,
             dbKey,
             dbIndex: db.index,
-            namespace: row.namespace,
-            depth: dbDepth + 1 + row.depth,
+            namespace: null,
+            depth: dbDepth + 1,
           });
         }
       }
-      if (hasMore(db, null)) {
-        rows.push({
-          kind: "loadmore",
-          id: `more:${dbKey}`,
-          connectionId: connection.id,
-          dbKey,
-          dbIndex: db.index,
-          namespace: null,
-          depth: dbDepth + 1,
-        });
+    };
+
+    const sortedGroups = groups
+      .slice()
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+    const rootConnections = connections.filter(
+      (connection) => !connection.groupId || !knownGroups.has(connection.groupId),
+    );
+
+    for (const group of sortedGroups) {
+      const members = connections.filter((connection) => connection.groupId === group.id);
+      next.push({ kind: "group", id: `group:${group.id}`, group, depth: 0 });
+      if (!collapsedGroups.has(group.id)) {
+        for (const connection of members) addConnectionRows(connection, 1);
       }
     }
-  };
-
-  const sortedGroups = groups
-    .slice()
-    .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
-  const rootConnections = connections.filter(
-    (connection) => !connection.groupId || !knownGroups.has(connection.groupId),
-  );
-
-  for (const group of sortedGroups) {
-    const members = connections.filter((connection) => connection.groupId === group.id);
-    rows.push({ kind: "group", id: `group:${group.id}`, group, depth: 0 });
-    if (!collapsedGroups.has(group.id)) {
-      for (const connection of members) addConnectionRows(connection, 1);
-    }
-  }
-  for (const connection of rootConnections) addConnectionRows(connection, 0);
+    for (const connection of rootConnections) addConnectionRows(connection, 0);
+    return next;
+  }, [
+    connections,
+    groups,
+    servers,
+    configs,
+    settings,
+    collapsedGroups,
+    expandedNs,
+    filterDb,
+  ]);
 
   const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - 8);
   const visibleCount = Math.ceil(viewportHeight / ROW_HEIGHT) + 16;
   const endIndex = Math.min(rows.length, startIndex + visibleCount);
+  /** Visible window plus overscan; metadata is only requested for these rows. */
+  const windowRows = rows.slice(startIndex, endIndex);
 
   // ---- metadata (TYPE / TTL) for key rows --------------------------------
 
-  const keyRows = rows.filter(
+  const keyRows = windowRows.filter(
     (row): row is Extract<TreeRowData, { kind: "node" }> =>
       row.kind === "node" && row.node.kind === "key",
   );
@@ -701,7 +769,7 @@ export default function ConnectionTree({
                 for (const item of result) {
                   next[`${connectionId}:${db}:${item.key}`] = item;
                 }
-                return next;
+                return capRecord(next, META_CACHE_LIMIT);
               });
             } catch (e) {
               for (const item of chunk) failedMeta.current.add(item.cacheKey);
@@ -726,6 +794,13 @@ export default function ConnectionTree({
 
   const stopLiveDb = async (connectionId: string, dbIndex: number) => {
     const key = dbKeyOf(connectionId, dbIndex);
+    // Drop the queued reload timer even if live update was already disabled;
+    // otherwise it fires once after the subscription has been stopped.
+    const timer = liveTimers.current[key];
+    if (timer) {
+      window.clearTimeout(timer);
+      delete liveTimers.current[key];
+    }
     if (!liveDbsRef.current.has(key)) return;
     liveDbsRef.current.delete(key);
     setLiveDbs((prev) => {
@@ -770,6 +845,54 @@ export default function ConnectionTree({
       onNotify(errMessage(e));
       onLog(t("tree.liveListenerFailed", { error: errMessage(e) }), "error");
     }
+  };
+
+  /**
+   * "Close Connection": releases the pooled Redis connections and the
+   * Live Update / MONITOR subscriptions of one server, collapses its subtree
+   * and drops cached TYPE/TTL data. The saved connection config is untouched,
+   * so expanding it again reconnects with the same settings.
+   */
+  const closeConnection = async (connection: ConnectionSummary) => {
+    try {
+      await ipc.closeConnection(connection.id);
+    } catch (e) {
+      onNotify(errMessage(e));
+      onLog(t("tree.closeConnectionFailed", { error: errMessage(e) }), "error");
+    }
+
+    const prefix = `${connection.id}:`;
+    for (const key of Object.keys(liveTimers.current)) {
+      if (!key.startsWith(prefix)) continue;
+      window.clearTimeout(liveTimers.current[key]);
+      delete liveTimers.current[key];
+    }
+    const remaining = new Set([...liveDbsRef.current].filter((key) => !key.startsWith(prefix)));
+    liveDbsRef.current = remaining;
+    setLiveDbs(remaining);
+    setExpandedNs((prev) => {
+      const next = new Set<string>();
+      let changed = false;
+      for (const id of prev) {
+        if (id.startsWith(`ns:${prefix}`)) changed = true;
+        else next.add(id);
+      }
+      return changed ? next : prev;
+    });
+    setMeta((prev) => {
+      const matching = Object.keys(prev).filter((key) => key.startsWith(prefix));
+      if (!matching.length) return prev;
+      const next = { ...prev };
+      for (const key of matching) delete next[key];
+      return next;
+    });
+    updateServer(connection.id, () => emptyServerView());
+    setSelectedId((prev) => {
+      if (!prev) return prev;
+      if (prev === `server:${connection.id}` || prev.includes(`:${prefix}`)) return null;
+      return prev;
+    });
+    onNotify(t("tree.closedConnection", { name: connection.name }));
   };
 
   const deleteKeyRow = async (row: Extract<TreeRowData, { kind: "node" }>) => {
@@ -863,6 +986,12 @@ export default function ConnectionTree({
           updateServer(connection.id, () => emptyServerView());
           setExpandedNs(new Set());
         },
+      },
+      {
+        key: "close",
+        label: t("tree.closeConnection"),
+        icon: "unload",
+        onClick: () => void closeConnection(connection),
       },
       {
         key: "edit",
@@ -1394,7 +1523,6 @@ export default function ConnectionTree({
     }
   };
 
-  const visibleRows = rows.slice(startIndex, endIndex);
   const totalHeight = rows.length * ROW_HEIGHT;
 
   const bulkConnection = bulk
@@ -1413,7 +1541,7 @@ export default function ConnectionTree({
         }`}
         tabIndex={0}
         onKeyDown={handleKeyDown}
-        onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+        onScroll={(e) => handleScroll(e.currentTarget.scrollTop)}
         onDragOver={(event) => {
           if (!event.dataTransfer.types.includes("application/x-resp-connection")) return;
           event.preventDefault();
@@ -1433,7 +1561,7 @@ export default function ConnectionTree({
           <p className="p-4 text-[12px] text-muted">{t("tree.noConnections")}</p>
         ) : (
           <div className="relative" style={{ height: totalHeight }}>
-            {visibleRows.map((row, index) => {
+            {windowRows.map((row, index) => {
               const absoluteIndex = startIndex + index;
               const expanded =
                 row.kind === "server"

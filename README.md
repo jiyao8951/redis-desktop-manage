@@ -44,6 +44,7 @@ with that name.
 | Preview built frontend  | `bun run preview`                                                    | **not verified** — `vp preview`; frontend only, `invoke` calls fail                                |
 | Build installers        | `bun run tauri:build`                                                | **not verified** — `tauri build` with NSIS + MSI from `tauri.conf.json`                            |
 | Build via script        | `powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1` | **not verified** — version check + `bun install` + bundles; add `-Bundles nsis` for NSIS only      |
+| Package portable exe    | `bun run package:portable`                                           | release exe only (no NSIS/MSI); rewrites `dist-release/RESP.app_<version>_portable_x64.exe`       |
 | Lint, format, types     | `bun x vp check`                                                     | verified, exit 0 (39 files; formatting, lint rules and type-aware check)                           |
 | Lint without formatting | `bun x vp check --no-fmt`                                            | verified, exit 0                                                                                   |
 | Frontend tests          | `bun x vp test`                                                      | exit 1 — no `*.test.*` / `*.spec.*` files exist; the Rust tests below are the only automated tests |

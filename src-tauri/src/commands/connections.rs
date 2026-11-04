@@ -39,8 +39,21 @@ pub async fn save_connection(
 
     // Force the next tree expansion to reconnect with the new settings.
     app.pool.invalidate(&saved.id).await;
+    app.invalidate_config(&saved.id).await;
     app.monitor.stop(&saved.id).await;
     Ok(saved)
+}
+
+/// Releases the pooled Redis connections plus the Live Update and MONITOR
+/// subscriptions of one server without touching its saved configuration. The
+/// frontend collapses the tree subtree afterwards; expanding it reconnects.
+#[tauri::command]
+pub async fn close_connection(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    let app = state.inner();
+    app.pool.invalidate(&id).await;
+    app.live.stop_connection(&id).await;
+    app.monitor.stop(&id).await;
+    Ok(())
 }
 
 #[tauri::command]
@@ -49,6 +62,7 @@ pub async fn delete_connection(state: State<'_, AppState>, id: String) -> AppRes
     let connection_id = id.clone();
     with_db(app, move |conn| db::delete_config(conn, &connection_id)).await?;
     app.pool.invalidate(&id).await;
+    app.invalidate_config(&id).await;
     app.live.stop_connection(&id).await;
     app.monitor.stop(&id).await;
     Ok(())
@@ -77,6 +91,7 @@ pub async fn duplicate_connection(
     let app = state.inner();
     let copy = with_db(app, move |conn| db::duplicate_config(conn, &id)).await?;
     app.pool.invalidate(&copy.id).await;
+    app.invalidate_config(&copy.id).await;
     Ok(copy)
 }
 
@@ -97,6 +112,7 @@ pub async fn import_connections(state: State<'_, AppState>, path: String) -> App
     let app = state.inner();
     let imported = with_db(app, move |conn| db::import_file(conn, &PathBuf::from(path))).await?;
     app.pool.invalidate_all().await;
+    app.invalidate_all_configs().await;
     Ok(imported)
 }
 

@@ -40,7 +40,7 @@ export const DEFAULT_SETTINGS: Settings = {
   namespacedKeysShortName: true,
   scanLimit: 10000,
   treeItemMaxChilds: 1000,
-  scanPageSize: 100, // stage requirement
+  scanPageSize: 500, // fewer SCAN round trips; still user-overridable
   liveUpdateKeysLimit: 1000,
   liveUpdateInterval: 10,
   darkMode: "auto",

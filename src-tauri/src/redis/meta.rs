@@ -1,23 +1,18 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use redis::aio::ConnectionManager;
-use tokio::sync::Semaphore;
-use tokio::task::JoinSet;
+use redis::Value;
 
 use crate::error::{AppError, AppResult};
 use crate::models::connection::ConnectionConfig;
 use crate::models::server::{InfoField, InfoSection};
 use crate::models::tree::{KeyMeta, ServerFacts, TestResult};
 
-use super::manager::{
-    connect, execute_timeout, query_with_timeout, SSH_UNSUPPORTED_MESSAGE,
-};
+use super::manager::{connect, execute_timeout, query_with_timeout, SSH_UNSUPPORTED_MESSAGE};
 use super::scan::parse_keyspace;
 
-/// TYPE / TTL requests issued in parallel, matching the stage requirement of a
-/// bounded async fan-out from the Rust side.
-const META_CONCURRENCY: usize = 8;
+/// A TYPE+TTL pair per key, in key order.
+const COMMANDS_PER_KEY: usize = 2;
 
 /// Shared INFO parser: both Server Facts (flat key lookup) and Server Actions
 /// (ordered sections) read the same Redis reply through this function.
@@ -171,72 +166,86 @@ pub async fn test_connection(config: &ConnectionConfig) -> AppResult<TestResult>
     })
 }
 
+/// Builds one pipeline with `TYPE key` + `TTL key` for every key. The frontend
+/// sends keys in pages of 50, so a whole page is a single round trip instead of
+/// one per key.
+fn meta_pipeline(keys: &[String]) -> redis::Pipeline {
+    let mut pipe = redis::pipe();
+    for key in keys {
+        pipe.cmd("TYPE").arg(key).cmd("TTL").arg(key);
+    }
+    pipe
+}
+
+/// TYPE replies are simple strings in RESP2 and RESP3; accept the other string
+/// shapes defensively so a proxy that returns bulk strings still works.
+fn type_reply(value: &Value) -> Option<String> {
+    match value {
+        Value::SimpleString(text) => Some(text.clone()),
+        Value::BulkString(bytes) => Some(String::from_utf8_lossy(bytes).into_owned()),
+        Value::VerbatimString { text, .. } => Some(text.clone()),
+        _ => None,
+    }
+}
+
+/// Maps the flat pipeline reply (`[TYPE k0, TTL k0, TYPE k1, TTL k1, ...]`)
+/// back to one `KeyMeta` per requested key. Anything unexpected degrades the
+/// affected key to `unknown` / `-2`, matching the previous per-key behaviour.
+fn meta_from_replies(keys: &[String], replies: Vec<Value>) -> Vec<KeyMeta> {
+    keys.iter()
+        .enumerate()
+        .map(|(index, key)| {
+            let type_index = index * COMMANDS_PER_KEY;
+            let ttl_index = type_index + 1;
+            let key_type = replies
+                .get(type_index)
+                .and_then(type_reply)
+                .unwrap_or_else(|| "unknown".to_string());
+            let ttl = match replies.get(ttl_index) {
+                Some(Value::Int(value)) => *value,
+                _ => -2,
+            };
+            KeyMeta {
+                key: key.clone(),
+                key_type,
+                ttl,
+            }
+        })
+        .collect()
+}
+
+fn unknown_metas(keys: &[String]) -> Vec<KeyMeta> {
+    keys.iter()
+        .map(|key| KeyMeta {
+            key: key.clone(),
+            key_type: "unknown".to_string(),
+            ttl: -2,
+        })
+        .collect()
+}
+
 pub async fn key_meta_batch(
     conn: &ConnectionManager,
     config: &ConnectionConfig,
     keys: &[String],
 ) -> AppResult<Vec<KeyMeta>> {
-    let semaphore = Arc::new(Semaphore::new(META_CONCURRENCY));
-    let timeout = execute_timeout(config);
-    let mut set: JoinSet<(usize, KeyMeta)> = JoinSet::new();
-
-    for (index, key) in keys.iter().enumerate() {
-        let mut conn = conn.clone();
-        let semaphore = semaphore.clone();
-        let key = key.clone();
-
-        set.spawn(async move {
-            let unknown = |key: String| {
-                (
-                    index,
-                    KeyMeta {
-                        key,
-                        key_type: "unknown".to_string(),
-                        ttl: -2,
-                    },
-                )
-            };
-
-            let Ok(permit) = semaphore.acquire_owned().await else {
-                return unknown(key);
-            };
-            let _permit = permit;
-
-            let response = tokio::time::timeout(
-                timeout,
-                redis::pipe()
-                    .cmd("TYPE")
-                    .arg(&key)
-                    .cmd("TTL")
-                    .arg(&key)
-                    .query_async::<(String, i64)>(&mut conn),
-            )
-            .await;
-
-            match response {
-                Ok(Ok((key_type, ttl))) => (
-                    index,
-                    KeyMeta {
-                        key,
-                        key_type,
-                        ttl,
-                    },
-                ),
-                _ => unknown(key),
-            }
-        });
+    if keys.is_empty() {
+        return Ok(Vec::new());
     }
 
-    let mut slots: Vec<Option<KeyMeta>> = vec![None; keys.len()];
-    while let Some(joined) = set.join_next().await {
-        if let Ok((index, meta)) = joined {
-            if let Some(slot) = slots.get_mut(index) {
-                *slot = Some(meta);
-            }
-        }
-    }
+    let mut conn = conn.clone();
+    let response = tokio::time::timeout(
+        execute_timeout(config),
+        meta_pipeline(keys).query_async::<Vec<Value>>(&mut conn),
+    )
+    .await;
 
-    Ok(slots.into_iter().flatten().collect())
+    match response {
+        Ok(Ok(replies)) => Ok(meta_from_replies(keys, replies)),
+        // One transport/timeout failure covers the whole page; every key
+        // degrades to unknown/-2 so the tree can retry it later.
+        _ => Ok(unknown_metas(keys)),
+    }
 }
 
 pub async fn key_exists(
@@ -355,4 +364,67 @@ fn percent_decode(value: &str) -> String {
         index += 1;
     }
     String::from_utf8_lossy(&out).into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key_arg_list(command: &redis::Cmd) -> Vec<String> {
+        command
+            .args_iter()
+            .filter_map(|arg| match arg {
+                redis::Arg::Simple(bytes) => Some(String::from_utf8_lossy(bytes).into_owned()),
+                redis::Arg::Cursor => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn meta_pipeline_emits_type_and_ttl_in_key_order() {
+        let keys = vec!["alpha".to_string(), "beta".to_string()];
+        let pipe = meta_pipeline(&keys);
+        let commands: Vec<Vec<String>> = pipe.cmd_iter().map(key_arg_list).collect();
+
+        assert_eq!(commands.len(), keys.len() * COMMANDS_PER_KEY);
+        assert_eq!(commands[0], vec!["TYPE", "alpha"]);
+        assert_eq!(commands[1], vec!["TTL", "alpha"]);
+        assert_eq!(commands[2], vec!["TYPE", "beta"]);
+        assert_eq!(commands[3], vec!["TTL", "beta"]);
+    }
+
+    #[test]
+    fn meta_from_replies_maps_each_pair_back_to_its_key() {
+        let keys = vec!["alpha".to_string(), "beta".to_string()];
+        let replies = vec![
+            Value::SimpleString("string".into()),
+            Value::Int(120),
+            Value::BulkString(b"hash".to_vec()),
+            Value::Int(-1),
+        ];
+        let metas = meta_from_replies(&keys, replies);
+
+        assert_eq!(metas.len(), 2);
+        assert_eq!(metas[0].key, "alpha");
+        assert_eq!(metas[0].key_type, "string");
+        assert_eq!(metas[0].ttl, 120);
+        assert_eq!(metas[1].key, "beta");
+        assert_eq!(metas[1].key_type, "hash");
+        assert_eq!(metas[1].ttl, -1);
+    }
+
+    #[test]
+    fn short_or_failed_reply_degrades_to_unknown() {
+        let keys = vec!["alpha".to_string(), "beta".to_string()];
+        // Only the first key came back (e.g. a truncated proxy reply).
+        let replies = vec![Value::SimpleString("string".into()), Value::Int(10)];
+        let metas = meta_from_replies(&keys, replies);
+        assert_eq!(metas[1].key_type, "unknown");
+        assert_eq!(metas[1].ttl, -2);
+
+        let metas = unknown_metas(&keys);
+        assert_eq!(metas.len(), 2);
+        assert!(metas.iter().all(|meta| meta.ttl == -2));
+        assert!(metas.iter().all(|meta| meta.key_type == "unknown"));
+    }
 }

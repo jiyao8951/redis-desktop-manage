@@ -36,6 +36,7 @@ pub fn run() {
             commands::get_connection,
             commands::save_connection,
             commands::delete_connection,
+            commands::close_connection,
             commands::move_connection,
             commands::duplicate_connection,
             commands::test_connection,

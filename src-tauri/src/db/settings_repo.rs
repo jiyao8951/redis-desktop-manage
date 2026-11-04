@@ -9,7 +9,7 @@ const VERSION_KEY: &str = "settings_schema_version";
 
 /// Bumped whenever a persisted default changes. The migration below is keyed
 /// by this value, so it runs at most once per database and is idempotent.
-pub const SETTINGS_SCHEMA_VERSION: u64 = 2;
+pub const SETTINGS_SCHEMA_VERSION: u64 = 3;
 
 pub fn load(conn: &Connection) -> AppResult<Settings> {
     let raw: Option<String> = conn
@@ -61,6 +61,16 @@ pub fn apply_settings_migration(value: &mut Value, from_version: u64) -> bool {
         // 10,000, so old profiles would silently keep the wrong limit.
         if value.get("liveUpdateKeysLimit").and_then(Value::as_u64) == Some(10_000) {
             value["liveUpdateKeysLimit"] = Value::from(1_000u64);
+            changed = true;
+        }
+    }
+
+    if from_version < 3 {
+        // Raised the SCAN page size default from 100 to 500 (fewer IPC rounds
+        // for large keyspaces). Only the exact historical default is rewritten,
+        // so an explicit user choice is preserved.
+        if value.get("scanPageSize").and_then(Value::as_u64) == Some(100) {
+            value["scanPageSize"] = Value::from(500u64);
             changed = true;
         }
     }
@@ -157,6 +167,36 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<Value>(&read_settings(&conn)).unwrap()
                 ["liveUpdateKeysLimit"],
+            1_000
+        );
+    }
+
+    #[test]
+    fn old_default_scan_page_size_is_migrated_once() {
+        let mut conn = memory_db();
+        insert_settings(&conn, r#"{"scanPageSize":100}"#);
+
+        assert!(migrate(&mut conn).unwrap());
+        assert_eq!(
+            serde_json::from_str::<Value>(&read_settings(&conn)).unwrap()["scanPageSize"],
+            500
+        );
+        // Second startup is a no-op.
+        assert!(!migrate(&mut conn).unwrap());
+        assert_eq!(
+            serde_json::from_str::<Value>(&read_settings(&conn)).unwrap()["scanPageSize"],
+            500
+        );
+    }
+
+    #[test]
+    fn explicit_scan_page_size_is_preserved() {
+        let mut conn = memory_db();
+        insert_settings(&conn, r#"{"scanPageSize":1000}"#);
+
+        assert!(!migrate(&mut conn).unwrap());
+        assert_eq!(
+            serde_json::from_str::<Value>(&read_settings(&conn)).unwrap()["scanPageSize"],
             1_000
         );
     }

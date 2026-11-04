@@ -21,7 +21,6 @@ pub struct InfoSection {
 #[serde(rename_all = "camelCase")]
 pub struct ServerInfo {
     pub sections: Vec<InfoSection>,
-    pub raw: String,
 }
 
 /// Mirrors serverstatsmodel.cpp: `SLOWLOG GET 15` keeps id/time/duration and

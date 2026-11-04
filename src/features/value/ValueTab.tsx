@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import Dialog from "../../components/ui/Dialog";
 import Button from "../../components/ui/Button";
@@ -22,6 +22,7 @@ import ValueEditorPane from "./ValueEditorPane";
 import ValueTable from "./ValueTable";
 
 const CHUNK_BYTES = 64 * 1024;
+const INDEXED_COLUMNS = ["rowNumber", "value"];
 
 interface ValueTabProps {
   connectionId: string;
@@ -86,7 +87,6 @@ function RowDialog({
   const t = useT();
   const [first, setFirst] = useState("");
   const [second, setSecond] = useState(keyType === "zset" ? "0" : "");
-  const [streamId, setStreamId] = useState("*");
 
   const title =
     keyType === "hash"
@@ -95,15 +95,12 @@ function RowDialog({
         ? t("value.newSetMember")
         : keyType === "zset"
           ? t("value.newZsetMember")
-          : keyType === "stream"
-            ? t("value.newStreamEntry")
-            : t("value.newListElement");
+          : t("value.newListElement");
 
   const submit = () => {
     const text = (value: string): ValueCell => ({ encoding: "utf8", payload: value });
     if (keyType === "hash") onSubmit([text(first), text(second)]);
     else if (keyType === "zset") onSubmit([text(first), text(second || "0")]);
-    else if (keyType === "stream") onSubmit([text(streamId || "*"), text(first)]);
     else onSubmit([text(first)]);
   };
 
@@ -124,12 +121,6 @@ function RowDialog({
       }
     >
       <div className="space-y-2">
-        {keyType === "stream" ? (
-          <label className="block text-[12px]">
-            <span className="mb-1 block text-muted">{t("value.entryIdLabel")}</span>
-            <TextInput value={streamId} onChange={(e) => setStreamId(e.target.value)} />
-          </label>
-        ) : null}
         {keyType === "hash" || keyType === "zset" ? (
           <label className="block text-[12px]">
             <span className="mb-1 block text-muted">
@@ -151,17 +142,6 @@ function RowDialog({
               className="h-28 w-full resize-none rounded-sm border border-border bg-base px-2 py-1 font-mono text-[12px] outline-none"
               value={second}
               onChange={(event) => setSecond(event.target.value)}
-            />
-          </label>
-        ) : null}
-        {keyType === "stream" ? (
-          <label className="block text-[12px]">
-            <span className="mb-1 block text-muted">{t("value.entryJsonLabel")}</span>
-            <textarea
-              className="h-28 w-full resize-none rounded-sm border border-border bg-base px-2 py-1 font-mono text-[12px] outline-none"
-              placeholder={t("value.entryJsonPlaceholder")}
-              value={first}
-              onChange={(event) => setFirst(event.target.value)}
             />
           </label>
         ) : null}
@@ -218,11 +198,11 @@ export default function ValueTab({
   const [loadedBytes, setLoadedBytes] = useState(0);
   const [totalBytes, setTotalBytes] = useState<number | null>(null);
   const [chunkLoading, setChunkLoading] = useState(false);
+  /** Bumped whenever the data behind the editor is reloaded, resetting drafts. */
+  const [dataVersion, setDataVersion] = useState(0);
 
   const [selected, setSelected] = useState<{ row: number; column: number } | null>(null);
   const [formatter, setFormatter] = useState<FormatterId>("auto");
-  const [stringDraft, setStringDraft] = useState("");
-  const [cellDraft, setCellDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [addRowOpen, setAddRowOpen] = useState(false);
   const [ttlOpen, setTtlOpen] = useState(false);
@@ -252,45 +232,59 @@ export default function ValueTab({
     setAcc(rows);
     setCursor(nextCursor);
     setDone(exhausted);
+    setDataVersion((version) => version + 1);
   };
 
   const loadChunks = useCallback(
-    async (reset: boolean) => {
+    async (reset: boolean, target: number) => {
       const ticket = seq.current;
       setChunkLoading(true);
       try {
-        let merged = reset ? new Uint8Array() : bytes;
+        // Keep the already loaded chunks as one part and concatenate once at
+        // the end instead of reallocating the whole value per chunk.
+        const parts: Uint8Array[] = reset ? [] : [bytes];
         let offset = reset ? 0 : loadedBytes;
         let total: number | null = reset ? null : totalBytes;
         let reachedLimit = false;
 
-        while (offset < sizeLimit) {
+        while (offset < target) {
           const chunk = await ipc.readStringChunk({
             connectionId,
             db,
             key: keyName,
             offset,
             limit: CHUNK_BYTES,
+            knownTotal: total ?? undefined,
           });
           if (seq.current !== ticket) return;
           const part = chunkBytes(chunk);
-          const next = new Uint8Array(merged.length + part.length);
-          next.set(merged);
-          next.set(part, merged.length);
-          merged = next;
-          offset += part.length;
           total = chunk.totalBytes ?? total;
-          if (part.length === 0 || !chunk.truncated) break;
-          if (offset >= sizeLimit) {
-            reachedLimit = true;
-            break;
+          if (part.length === 0) break;
+          parts.push(part);
+          offset += part.length;
+          if (!chunk.truncated) break;
+        }
+
+        let merged: Uint8Array;
+        if (parts.length === 1) {
+          merged = parts[0];
+        } else {
+          const length = parts.reduce((sum, part) => sum + part.length, 0);
+          merged = new Uint8Array(length);
+          let at = 0;
+          for (const part of parts) {
+            merged.set(part, at);
+            at += part.length;
           }
         }
 
         setBytes(merged);
         setLoadedBytes(merged.length);
         setTotalBytes(total);
-        if (reset) setStringDraft(textOf(merged));
+        setDataVersion((version) => version + 1);
+        if (Number.isFinite(target) && total !== null && merged.length < total) {
+          reachedLimit = true;
+        }
         if (reachedLimit) {
           onNotify(
             t("value.limitNotify", {
@@ -308,7 +302,18 @@ export default function ValueTab({
         if (seq.current === ticket) setChunkLoading(false);
       }
     },
-    [bytes, connectionId, db, keyName, loadedBytes, onLog, onNotify, sizeLimit, t, totalBytes],
+    [
+      bytes,
+      connectionId,
+      db,
+      keyName,
+      loadedBytes,
+      onLog,
+      onNotify,
+      sizeLimit,
+      t,
+      totalBytes,
+    ],
   );
 
   const loadIndexed = useCallback(
@@ -330,16 +335,18 @@ export default function ValueTab({
         if (seq.current !== ticket) return;
         setIndexedPage(result);
         setSelected(null);
+        setDataVersion((version) => version + 1);
       } catch (e) {
         if (seq.current !== ticket) return;
         const message = errMessage(e);
         setError(message);
         onLog(t("value.cannotPage", { key: keyName, error: message }), "error");
       } finally {
-        if (seq.current === ticket) {
-          rowsLoadingRef.current = false;
-          setRowsLoading(false);
-        }
+        // Reset unconditionally: a reload/rename invalidates the ticket while
+        // this request is in flight, and gating the reset caused a permanent
+        // spinner and a disabled "Next".
+        rowsLoadingRef.current = false;
+        setRowsLoading(false);
       }
     },
     [connectionId, db, keyName, onLog, pageSize, t],
@@ -374,10 +381,8 @@ export default function ValueTab({
         setError(message);
         onLog(t("value.cannotPage", { key: keyName, error: message }), "error");
       } finally {
-        if (seq.current === ticket) {
-          rowsLoadingRef.current = false;
-          setRowsLoading(false);
-        }
+        rowsLoadingRef.current = false;
+        setRowsLoading(false);
       }
     },
     [connectionId, db, keyName, onLog, pageSize, t],
@@ -385,12 +390,15 @@ export default function ValueTab({
 
   const reload = useCallback(async () => {
     const ticket = (seq.current += 1);
+    // A previous request may still hold the loading flag; reload must not skip
+    // its own fetch because of a stale ticket.
+    rowsLoadingRef.current = false;
+    setRowsLoading(false);
     setLoadingInfo(true);
     setError(null);
     setInfo(null);
     setFilter("");
     setSelected(null);
-    setCellDraft("");
     setPage(0);
     setIndexedPage(null);
     setCursorState([], "0", false);
@@ -404,7 +412,7 @@ export default function ValueTab({
       setInfo(meta);
       if (!meta.supported) return;
       if (meta.singleRow) {
-        await loadChunks(true);
+        await loadChunks(true, sizeLimit);
       } else if (cursorPaged(meta.keyType)) {
         await fetchCursorMore(meta);
       } else {
@@ -418,7 +426,7 @@ export default function ValueTab({
     } finally {
       if (seq.current === ticket) setLoadingInfo(false);
     }
-  }, [connectionId, db, keyName, onLog, loadChunks, fetchCursorMore, loadIndexed, reverse, t]);
+  }, [connectionId, db, keyName, onLog, loadChunks, fetchCursorMore, loadIndexed, reverse, sizeLimit, t]);
 
   useEffect(() => {
     void reload();
@@ -432,15 +440,44 @@ export default function ValueTab({
   const meta = info;
   const isCursorMode = meta ? cursorPaged(meta.keyType) : false;
 
-  const pageRows = isCursorMode
-    ? acc.slice(page * pageSize, (page + 1) * pageSize)
-    : (indexedPage?.rows ?? []);
+  // String view: decode/format once per byte snapshot, not on every keystroke.
+  const stringCell = useMemo(() => cellFromBytes(bytes), [bytes]);
+  const stringBinary = useMemo(() => isBinary(bytes), [bytes]);
+  const stringText = useMemo(() => textOf(bytes), [bytes]);
+  const fullyLoaded = Boolean(
+    meta?.singleRow && totalBytes !== null && loadedBytes >= totalBytes,
+  );
+  const partialLoad = Boolean(
+    meta?.singleRow && totalBytes !== null && loadedBytes < totalBytes,
+  );
 
-  const rows = filter
-    ? pageRows.filter((row) =>
-        row.columns.some((cell) => cell.payload.toLowerCase().includes(filter.toLowerCase())),
-      )
-    : pageRows;
+  const pageRows = useMemo(
+    () =>
+      isCursorMode
+        ? acc.slice(page * pageSize, (page + 1) * pageSize)
+        : (indexedPage?.rows ?? []),
+    [isCursorMode, acc, page, pageSize, indexedPage],
+  );
+
+  const rows = useMemo(() => {
+    if (!filter) return pageRows;
+    const needle = filter.toLowerCase();
+    return pageRows.filter((row) =>
+      row.columns.some((cell) => cell.payload.toLowerCase().includes(needle)),
+    );
+  }, [pageRows, filter]);
+
+  const columns = useMemo(
+    () =>
+      isCursorMode
+        ? meta?.keyType === "hash"
+          ? ["rowNumber", "key", "value"]
+          : meta?.keyType === "stream"
+            ? ["rowNumber", "id", "value"]
+            : ["rowNumber", "value"]
+        : (indexedPage?.columns ?? INDEXED_COLUMNS),
+    [isCursorMode, indexedPage, meta?.keyType],
+  );
 
   const total = meta?.length ?? (isCursorMode ? acc.length : (indexedPage?.total ?? null));
   const pageCount = isCursorMode
@@ -462,15 +499,31 @@ export default function ValueTab({
     if (!meta) return;
     if (isCursorMode) {
       const needed = (page + 2) * pageSize;
-      if (acc.length < needed && !done) {
+      const before = acc.length;
+      if (before < needed && !done) {
         await fetchCursorMore(meta);
       }
-      if (accRef.current.length >= needed || !doneRef.current) {
+      if (accRef.current.length >= needed || (!doneRef.current && accRef.current.length > before)) {
         setPage(page + 1);
       }
       return;
     }
-    if (pageCount !== null && page + 1 < pageCount) setPage(page + 1);
+    if (pageCount !== null && page + 1 < pageCount) {
+      const target = page + 1;
+      setPage(target);
+      await loadIndexed(meta, target, reverse);
+    }
+  };
+
+  const goPrev = async () => {
+    if (!meta || page === 0) return;
+    if (isCursorMode) {
+      setPage(page - 1);
+      return;
+    }
+    const target = page - 1;
+    setPage(target);
+    await loadIndexed(meta, target, reverse);
   };
 
   const goTo = async (target: number) => {
@@ -487,7 +540,11 @@ export default function ValueTab({
       setPage(Math.min(target, lastPage));
       return;
     }
-    if (pageCount !== null) setPage(Math.min(target, pageCount - 1));
+    if (pageCount !== null) {
+      const next = Math.min(target, pageCount - 1);
+      setPage(next);
+      await loadIndexed(meta, next, reverse);
+    }
   };
 
   const changeReverse = async (value: boolean) => {
@@ -509,34 +566,29 @@ export default function ValueTab({
     }
   };
 
-  const saveString = async () => {
+  const saveString = async (value: string) => {
     if (!meta || saving) return;
-    if (isBinary(bytes)) return;
+    if (!fullyLoaded) {
+      onNotify(t("value.truncatedWarning"));
+      return;
+    }
+    if (stringBinary) return;
     setSaving(true);
     try {
       await ipc.saveStringValue({
         connectionId,
         db,
         key: keyName,
-        value: { encoding: "utf8", payload: stringDraft },
+        value: { encoding: "utf8", payload: value },
       });
       onNotify(t("value.valueSaved"));
-      await loadChunks(true);
+      await loadChunks(true, sizeLimit);
     } catch (e) {
       onNotify(errMessage(e));
     } finally {
       setSaving(false);
     }
   };
-
-  const accColumns = ["rowNumber", "value"];
-  const columns = isCursorMode
-    ? meta?.keyType === "hash"
-      ? ["rowNumber", "key", "value"]
-      : meta?.keyType === "stream"
-        ? ["rowNumber", "id", "value"]
-        : ["rowNumber", "value"]
-    : (indexedPage?.columns ?? accColumns);
 
   const selectedRowData = pageRows.find((row) => row.row === selected?.row) ?? null;
   const selectedCell = selectedRowData?.columns[selected?.column ?? 0] ?? null;
@@ -550,14 +602,13 @@ export default function ValueTab({
   const canEditCell = Boolean(
     meta && meta.keyType !== "stream" && selectedCell && selectedCell.encoding === "utf8",
   );
-  const cellDirty = canEditCell && selectedCell ? cellDraft !== selectedCell.payload : false;
 
   const listPosition = (row: number) => (reverse ? -(row + 1) : row);
 
-  const saveCell = async () => {
+  const saveCell = async (text: string) => {
     if (!meta || !selected || !selectedRowData || !canEditCell || saving) return;
     const newColumns: ValueCell[] = selectedRowData.columns.map((cell, index) =>
-      index === selected.column ? { encoding: "utf8" as const, payload: cellDraft } : cell,
+      index === selected.column ? { encoding: "utf8" as const, payload: text } : cell,
     );
     setSaving(true);
     try {
@@ -644,8 +695,14 @@ export default function ValueTab({
           onNotify(t("value.ttlMustBeNonNegative"));
           return;
         }
-        await ipc.setKeyTtl({ connectionId, db, key: keyName, ttl });
-        onNotify(t("value.ttlSet", { ttl }));
+        if (ttl === 0) {
+          // EXPIRE 0 deletes the key, so zero means PERSIST here.
+          await ipc.persistKey({ connectionId, db, key: keyName });
+          onNotify(t("value.ttlRemoved"));
+        } else {
+          await ipc.setKeyTtl({ connectionId, db, key: keyName, ttl });
+          onNotify(t("value.ttlSet", { ttl }));
+        }
       }
       setTtlOpen(false);
       await reload();
@@ -683,14 +740,16 @@ export default function ValueTab({
     }
   };
 
-  const valueLimitReached = meta?.singleRow && totalBytes !== null && loadedBytes < totalBytes;
-
   const copy = (text: string) => {
     void navigator.clipboard.writeText(text).then(
       () => onNotify(t("common.copied")),
       () => onNotify(t("common.clipboardUnavailable")),
     );
   };
+
+  const handleSelect = useCallback((row: ValueRow, column: number) => {
+    setSelected({ row: row.row, column });
+  }, []);
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-base">
@@ -785,17 +844,16 @@ export default function ValueTab({
                 loaded: loadedBytes.toLocaleString(),
                 total: (totalBytes ?? meta.length ?? 0).toLocaleString(),
               })}
-              {valueLimitReached
-                ? ` · ${t("value.displayLimit", { limit: humanBytes(sizeLimit) })}`
-                : ""}
+              {partialLoad ? ` · ${t("value.displayLimit", { limit: humanBytes(sizeLimit) })}` : ""}
             </span>
-            {valueLimitReached ? (
+            {partialLoad ? (
               <span className="text-danger">{t("value.truncatedWarning")}</span>
-            ) : totalBytes !== null && loadedBytes < totalBytes ? (
+            ) : null}
+            {partialLoad ? (
               <button
                 type="button"
                 className="rounded border border-border px-2 py-0.5 text-text"
-                onClick={() => void loadChunks(false)}
+                onClick={() => void loadChunks(false, Number.POSITIVE_INFINITY)}
                 disabled={chunkLoading}
               >
                 {t("value.loadMore")}
@@ -806,18 +864,17 @@ export default function ValueTab({
           <ValueEditorPane
             fill
             label={t("common.value")}
-            cell={cellFromBytes(bytes)}
+            cell={stringCell}
             formatter={formatter}
             limit={sizeLimit}
-            editing={!isBinary(bytes)}
-            draft={stringDraft}
-            dirty={stringDraft !== textOf(bytes)}
+            editing={fullyLoaded && !stringBinary}
+            sourceText={stringText}
+            editKey={`string:${dataVersion}`}
             saving={saving}
             fontFamily={settings.valueEditorFont}
             fontSize={settings.valueEditorFontSize}
             onFormatter={setFormatter}
-            onDraftChange={setStringDraft}
-            onSave={() => void saveString()}
+            onSave={(text) => void saveString(text)}
             onCopy={copy}
           />
         </>
@@ -834,29 +891,32 @@ export default function ValueTab({
                 {t("value.reverseOrder")}
               </label>
             )}
-            <Button variant="secondary" onClick={() => setAddRowOpen(true)} disabled={saving}>
-              <Icon name="plus" className="h-3.5 w-3.5" />
-              {meta.keyType === "hash"
-                ? t("value.addField")
-                : meta.keyType === "stream"
-                  ? t("value.addEntry")
-                  : t("value.addRow")}
-            </Button>
-            <Button
-              variant="danger"
-              onClick={() => void deleteRow()}
-              disabled={!selectedRowData || saving}
-            >
-              <Icon name="trash" className="h-3.5 w-3.5" />
-              {t("value.deleteRow")}
-            </Button>
-            {meta.keyType === "stream" ? <span>{t("value.newestFirst")}</span> : null}
-            <span className="ml-auto">
-              {t("value.cursorStatus", {
-                cursor: isCursorMode ? cursor : "0",
-                state: done ? t("value.exhausted") : t("value.moreAvailable"),
-              })}
-            </span>
+            {meta.keyType !== "stream" ? (
+              <>
+                <Button variant="secondary" onClick={() => setAddRowOpen(true)} disabled={saving}>
+                  <Icon name="plus" className="h-3.5 w-3.5" />
+                  {meta.keyType === "hash" ? t("value.addField") : t("value.addRow")}
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={() => void deleteRow()}
+                  disabled={!selectedRowData || saving}
+                >
+                  <Icon name="trash" className="h-3.5 w-3.5" />
+                  {t("value.deleteRow")}
+                </Button>
+              </>
+            ) : (
+              <span>{t("value.newestFirst")}</span>
+            )}
+            {isCursorMode ? (
+              <span className="ml-auto">
+                {t("value.cursorStatus", {
+                  cursor,
+                  state: done ? t("value.exhausted") : t("value.moreAvailable"),
+                })}
+              </span>
+            ) : null}
           </div>
           <ValueTable
             columns={columns}
@@ -866,11 +926,7 @@ export default function ValueTab({
             loading={rowsLoading}
             filter={filter}
             onFilter={setFilter}
-            onSelect={(row, column) => {
-              setSelected({ row: row.row, column });
-              const cell = row.columns[column];
-              setCellDraft(cell && cell.encoding === "utf8" ? cell.payload : "");
-            }}
+            onSelect={handleSelect}
           />
           <Pagination
             page={page}
@@ -880,7 +936,7 @@ export default function ValueTab({
             pageSize={pageSize}
             prevDisabled={page === 0 || rowsLoading}
             nextDisabled={nextDisabled}
-            onPrev={() => setPage(Math.max(0, page - 1))}
+            onPrev={() => void goPrev()}
             onNext={() => void goNext()}
             onGoTo={(target) => void goTo(target)}
           />
@@ -890,14 +946,17 @@ export default function ValueTab({
             formatter={formatter}
             limit={sizeLimit}
             editing={canEditCell}
-            draft={cellDraft}
-            dirty={cellDirty}
+            sourceText={selectedCell?.payload ?? ""}
+            editKey={
+              selected
+                ? `${selected.row}:${selected.column}:${dataVersion}`
+                : `none:${dataVersion}`
+            }
             saving={saving}
             fontFamily={settings.valueEditorFont}
             fontSize={settings.valueEditorFontSize}
             onFormatter={setFormatter}
-            onDraftChange={setCellDraft}
-            onSave={() => void saveCell()}
+            onSave={(text) => void saveCell(text)}
             onCopy={copy}
           />
         </>
@@ -952,7 +1011,7 @@ export default function ValueTab({
         </Dialog>
       ) : null}
 
-      {addRowOpen && meta ? (
+      {addRowOpen && meta && meta.keyType !== "stream" ? (
         <RowDialog
           keyType={meta.keyType}
           busy={saving}

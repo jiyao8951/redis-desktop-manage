@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 /// Global settings that affect this stage. Defaults match the Windows values
-/// in src/qml/settings/GlobalSettings.qml. `scanPageSize` is the stage
-/// requirement of 100 keys per lazy SCAN page (the original had a single
-/// SCAN limit, not a page size).
+/// in src/qml/settings/GlobalSettings.qml. `scanPageSize` is the number of keys
+/// requested per lazy SCAN page; the default was raised from 100 to 500 to cut
+/// the IPC round trips for large keyspaces, and remains user-overridable.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
@@ -34,7 +34,7 @@ impl Default for Settings {
             namespaced_keys_short_name: true,
             scan_limit: 10_000,
             tree_item_max_childs: 1_000,
-            scan_page_size: 100,
+            scan_page_size: 500,
             // GlobalSettings.qml: live update limit default 1000.
             live_update_keys_limit: 1_000,
             live_update_interval: 10,

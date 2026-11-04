@@ -44,7 +44,7 @@ export default function Menu({
   return (
     <div
       ref={ref}
-      className={`absolute z-30 min-w-[190px] rounded-sm border border-border bg-base py-1 shadow-xl ${className}`}
+      className={`absolute z-30 min-w-[190px] rounded-sm border border-border bg-base py-1 text-text shadow-xl ${className}`}
       role="menu"
       onClick={(e) => e.stopPropagation()}
     >

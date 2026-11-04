@@ -40,7 +40,7 @@ export function BulkTtlDialog({
 
   const submit = async () => {
     const seconds = Number(ttl);
-    if (!Number.isFinite(seconds)) {
+    if (!Number.isFinite(seconds) || !Number.isInteger(seconds)) {
       onNotify(t("bulk.ttlInvalid"));
       return;
     }

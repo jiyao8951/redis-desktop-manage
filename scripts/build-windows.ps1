@@ -19,27 +19,14 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
-function Assert-Command([string]$Name, [string]$Hint) {
-    if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
-        throw "Missing '$Name'. $Hint"
-    }
-}
+. (Join-Path $PSScriptRoot "lib-versions.ps1")
 
 Assert-Command "node" "Install Node.js 20.19+ and reopen the terminal."
 Assert-Command "bun" "Install Bun (https://bun.sh) and reopen the terminal."
 Assert-Command "cargo" "Install the Rust toolchain with the MSVC target (rustup default stable-x86_64-pc-windows-msvc)."
 
-# tauri.conf.json is the authoritative version; fail early when the three
-# manifests drift so the installer name and the exe version always match.
-$tauriConfig = Get-Content "src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json
-$packageJson = Get-Content "package.json" -Raw | ConvertFrom-Json
-$cargoVersion = (Select-String -Path "src-tauri/Cargo.toml" -Pattern '^version = "([^"]+)"' |
-    Select-Object -First 1).Matches[0].Groups[1].Value
-
-if ($tauriConfig.version -ne $packageJson.version -or $tauriConfig.version -ne $cargoVersion) {
-    throw "Version mismatch: tauri.conf.json=$($tauriConfig.version), package.json=$($packageJson.version), Cargo.toml=$cargoVersion"
-}
-Write-Host "Version: $($tauriConfig.version) ($($tauriConfig.identifier))" -ForegroundColor Cyan
+$project = Get-ProjectVersion -Root $root
+Write-Host "Version: $($project.Version) ($($project.Identifier))" -ForegroundColor Cyan
 
 if (-not (Test-Path "node_modules")) {
     if ($SkipInstall) {

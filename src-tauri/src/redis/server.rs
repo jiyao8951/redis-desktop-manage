@@ -79,9 +79,10 @@ pub async fn server_info(
         redis::cmd("INFO").arg("all").query_async(conn),
     )
     .await?;
+    // Only the parsed sections cross the IPC boundary; the raw INFO text was
+    // an exact duplicate of the same data and doubled the payload.
     Ok(ServerInfo {
         sections: parse_info_sections(&raw),
-        raw,
     })
 }
 
@@ -186,15 +187,19 @@ pub async fn config_get(
     conn: &mut ConnectionManager,
     config: &ConnectionConfig,
 ) -> AppResult<Vec<ConfigEntry>> {
-    let mut command = redis::cmd("CONFIG");
-    command.arg("GET");
+    // `CONFIG GET key1 key2 ...` was only added in Redis 7; older servers
+    // reject the multi-argument form. A pipeline of single-key GETs keeps the
+    // reply to one round trip while working on Redis <= 6.2 as well.
+    let mut pipe = redis::pipe();
     for key in CONFIG_KEYS {
-        command.arg(*key);
+        pipe.cmd("CONFIG").arg("GET").arg(*key);
     }
-    let reply: Value = query_with_timeout(execute_timeout(config), command.query_async(conn)).await?;
+    let replies: Vec<Value> =
+        query_with_timeout(execute_timeout(config), pipe.query_async(conn)).await?;
 
-    let mut entries: Vec<ConfigEntry> = pairs(&reply)
-        .into_iter()
+    let mut entries: Vec<ConfigEntry> = replies
+        .iter()
+        .flat_map(pairs)
         .map(|(name, value)| ConfigEntry { name, value })
         .collect();
     entries.sort_by(|left, right| left.name.cmp(&right.name));

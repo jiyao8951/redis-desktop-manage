@@ -6,20 +6,13 @@ use crate::models::connection::ConnectionConfig;
 use crate::models::server::{ClientEntry, ConfigEntry, MemoryReport, ServerInfo, SlowlogEntry};
 use crate::state::AppState;
 
-use super::with_db;
-
-async fn load_config(app: &AppState, connection_id: &str) -> AppResult<ConnectionConfig> {
-    let id = connection_id.to_string();
-    with_db(app, move |conn| crate::db::get_config(conn, &id)).await
-}
-
 /// Server Actions are read-only and do not depend on the selected database,
 /// so they reuse the pooled connection for db 0.
 async fn pool_connection(
     app: &AppState,
     connection_id: &str,
 ) -> AppResult<(ConnectionConfig, ConnectionManager)> {
-    let config = load_config(app, connection_id).await?;
+    let config = app.connection_config(connection_id).await?;
     let conn = app.pool.get(connection_id, 0, &config).await?;
     Ok((config, conn))
 }
@@ -84,7 +77,7 @@ pub async fn start_monitor(
     connection_id: String,
 ) -> AppResult<()> {
     let app = state.inner();
-    let config = load_config(app, &connection_id).await?;
+    let config = app.connection_config(&connection_id).await?;
     crate::redis::start_monitor(app_handle, &app.monitor, &config, &connection_id).await
 }
 

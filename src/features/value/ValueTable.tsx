@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 import { localizedColumn, useT } from "../../lib/i18n";
 import type { ValueCell, ValueRow } from "../../lib/types";
 
@@ -17,16 +19,20 @@ function preview(cell: ValueCell | undefined): string {
   if (cell.encoding === "base64") {
     return `base64:${cell.payload.slice(0, 40)}${cell.payload.length > 40 ? "…" : ""}`;
   }
-  const oneLine = cell.payload.replace(/\n/g, "\\n").replace(/\r/g, "\\r");
-  return oneLine.length > 200 ? `${oneLine.slice(0, 200)}…` : oneLine;
+  // Truncate before running the newline regex so a large payload is never
+  // scanned in full just to build a 200 character preview.
+  const clipped = cell.payload.slice(0, 200);
+  const oneLine = clipped.replace(/\n/g, "\\n").replace(/\r/g, "\\r");
+  return cell.payload.length > 200 ? `${oneLine}…` : oneLine;
 }
 
 /**
  * Rows arrive already paged by the backend, so the table only ever renders one
  * page (bounded by `ValueEditorPageSize`). That keeps the DOM small without a
- * third-party virtualiser.
+ * third-party virtualiser. It is memoized so typing in the editor draft below
+ * does not re-render every cell.
  */
-export default function ValueTable({
+function ValueTable({
   columns,
   rows,
   selectedRow,
@@ -105,3 +111,5 @@ export default function ValueTable({
     </div>
   );
 }
+
+export default memo(ValueTable);

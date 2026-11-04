@@ -1,7 +1,11 @@
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
+use tokio::sync::Mutex as AsyncMutex;
 
+use crate::error::{AppError, AppResult};
+use crate::models::connection::ConnectionConfig;
 use crate::redis::{LiveRegistry, MonitorRegistry, RedisPool};
 
 /// Shared application state. SQLite lives behind a std mutex and is only
@@ -14,6 +18,11 @@ pub struct AppState {
     pub live: LiveRegistry,
     /// Dedicated MONITOR connection per server (never pooled).
     pub monitor: MonitorRegistry,
+    /// In-memory copy of the persisted connection configs. Value editor/tree
+    /// commands read the config on every call; without this cache each of the
+    /// 24 chunked reads opened another SQLite round trip. Entries are dropped
+    /// when a connection is saved, deleted, duplicated or imported.
+    configs: Arc<AsyncMutex<HashMap<String, ConnectionConfig>>>,
 }
 
 impl AppState {
@@ -23,6 +32,94 @@ impl AppState {
             pool: RedisPool::new(),
             live: LiveRegistry::default(),
             monitor: MonitorRegistry::default(),
+            configs: Arc::new(AsyncMutex::new(HashMap::new())),
         }
+    }
+
+    /// Reads a connection config, using the cache when possible. Concurrent
+    /// misses may load the row twice (SQLite is cheap for a single row); the
+    /// insert keeps the first winner.
+    pub async fn connection_config(&self, connection_id: &str) -> AppResult<ConnectionConfig> {
+        if let Some(config) = self.configs.lock().await.get(connection_id).cloned() {
+            return Ok(config);
+        }
+
+        let database = self.db.clone();
+        let id = connection_id.to_string();
+        let loaded = tokio::task::spawn_blocking(move || {
+            let connection = database
+                .lock()
+                .map_err(|_| AppError::Message("database lock poisoned".to_string()))?;
+            crate::db::get_config(&connection, &id)
+        })
+        .await??;
+
+        let mut guard = self.configs.lock().await;
+        Ok(guard
+            .entry(connection_id.to_string())
+            .or_insert(loaded)
+            .clone())
+    }
+
+    /// Drops one cached config after it was saved or deleted.
+    pub async fn invalidate_config(&self, connection_id: &str) {
+        self.configs.lock().await.remove(connection_id);
+    }
+
+    /// Drops every cached config after an import replaced the connection list.
+    pub async fn invalidate_all_configs(&self) {
+        self.configs.lock().await.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state_with_database() -> AppState {
+        let mut connection = Connection::open_in_memory().unwrap();
+        crate::db::migrate(&mut connection).unwrap();
+        AppState::new(connection)
+    }
+
+    async fn save(state: &AppState, config: ConnectionConfig) -> ConnectionConfig {
+        let database = state.db.clone();
+        tokio::task::spawn_blocking(move || {
+            let connection = database.lock().unwrap();
+            crate::db::save_config(&connection, config).unwrap()
+        })
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn config_cache_is_dropped_on_invalidation() {
+        let state = state_with_database();
+
+        let mut config = ConnectionConfig::default();
+        config.name = "first".to_string();
+        let saved = save(&state, config).await;
+        let id = saved.id.clone();
+
+        let cached = state.connection_config(&id).await.unwrap();
+        assert_eq!(cached.name, "first");
+
+        // Rewrite the row behind the cache's back: the cache must still win.
+        let mut updated = saved.clone();
+        updated.name = "second".to_string();
+        save(&state, updated).await;
+        assert_eq!(state.connection_config(&id).await.unwrap().name, "first");
+
+        state.invalidate_config(&id).await;
+        assert_eq!(state.connection_config(&id).await.unwrap().name, "second");
+
+        state.invalidate_all_configs().await;
+        assert_eq!(state.connection_config(&id).await.unwrap().name, "second");
+    }
+
+    #[tokio::test]
+    async fn unknown_connection_is_an_error_not_a_cache_entry() {
+        let state = state_with_database();
+        assert!(state.connection_config("missing").await.is_err());
     }
 }

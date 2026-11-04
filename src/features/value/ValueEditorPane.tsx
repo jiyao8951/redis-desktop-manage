@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Icon } from "../../components/ui/Icon";
 import { useT } from "../../lib/i18n";
@@ -13,20 +13,22 @@ interface ValueEditorPaneProps {
   /** Fill the remaining tab height (string view) instead of the fixed pane. */
   fill?: boolean;
   editing?: boolean;
-  draft?: string;
-  dirty?: boolean;
+  /** Text the draft starts from (loaded value / selected cell payload). */
+  sourceText: string;
+  /** Changes when the selection or the loaded data changes, resetting the draft. */
+  editKey: string;
   saving?: boolean;
   fontFamily?: string;
   fontSize?: number;
   onFormatter: (formatter: FormatterId) => void;
-  onDraftChange?: (text: string) => void;
-  onSave?: () => void;
+  onSave: (text: string) => void;
   onCopy: (text: string) => void;
 }
 
 /**
  * Value editor pane. String values and single collection cells are editable;
- * the Save button mirrors the original editor Apply action.
+ * the Save button mirrors the original editor Apply action. The draft lives in
+ * this component so typing never re-renders the whole value table.
  */
 export default function ValueEditorPane({
   label,
@@ -35,21 +37,31 @@ export default function ValueEditorPane({
   limit,
   fill = false,
   editing = false,
-  draft,
-  dirty = false,
+  sourceText,
+  editKey,
   saving = false,
   fontFamily,
   fontSize,
   onFormatter,
-  onDraftChange,
   onSave,
   onCopy,
 }: ValueEditorPaneProps) {
   const t = useT();
+  const [draft, setDraft] = useState(sourceText);
+
+  useEffect(() => {
+    setDraft(sourceText);
+  }, [editKey, sourceText]);
+
+  // Formatting can decode a multi-megabyte value; skip it while the user is
+  // editing because the textarea renders the draft directly.
   const formatted = useMemo(
-    () => (cell ? formatCell(cell, formatter, limit) : null),
-    [cell, formatter, limit],
+    () => (cell && !editing ? formatCell(cell, formatter, limit) : null),
+    [cell, editing, formatter, limit],
   );
+
+  const dirty = editing && draft !== sourceText;
+  const copyText = editing ? draft : (formatted?.text ?? "");
 
   return (
     <div
@@ -75,7 +87,7 @@ export default function ValueEditorPane({
             type="button"
             className="flex items-center gap-1 rounded border border-accent bg-accent px-2 py-0.5 text-xs text-base disabled:opacity-40"
             disabled={saving || !dirty}
-            onClick={() => onSave?.()}
+            onClick={() => onSave(draft)}
           >
             {saving ? t("common.saving") : t("common.save")}
           </button>
@@ -83,8 +95,8 @@ export default function ValueEditorPane({
         <button
           type="button"
           className="ml-auto flex items-center gap-1 rounded border border-border px-2 py-0.5 text-xs text-text disabled:opacity-40"
-          disabled={!formatted}
-          onClick={() => formatted && onCopy(formatted.text)}
+          disabled={!copyText}
+          onClick={() => copyText && onCopy(copyText)}
         >
           <Icon name="copy" className="h-3.5 w-3.5" />
           {t("common.copy")}
@@ -98,11 +110,11 @@ export default function ValueEditorPane({
         }}
         readOnly={!editing}
         spellCheck={false}
-        value={editing ? (draft ?? "") : (formatted?.text ?? "")}
-        onChange={(event) => onDraftChange?.(event.target.value)}
+        value={editing ? draft : (formatted?.text ?? "")}
+        onChange={(event) => setDraft(event.target.value)}
         placeholder={cell ? "" : t("value.selectRow")}
       />
-      {formatted?.truncated ? (
+      {!editing && formatted?.truncated ? (
         <div className="border-t border-border px-3 py-1 text-xs text-muted">
           {t("value.displayTruncated", { limit: limit.toLocaleString() })}
         </div>

@@ -8,6 +8,14 @@ use crate::models::tree::{DatabaseInfo, ScanPage};
 
 use super::manager::{build_url, connection_timeout, execute_timeout, query_with_timeout};
 
+/// Default SCAN page size. The old 100 forced ~100 IPC rounds for 10k keys; 500
+/// keeps each reply modest while cutting the round trips by 5x. The value is
+/// still a COUNT hint: Redis may return more or fewer entries.
+pub const DEFAULT_SCAN_PAGE_SIZE: u32 = 500;
+
+/// Upper bound accepted from the settings UI.
+pub const MAX_SCAN_PAGE_SIZE: u32 = 1_000;
+
 /// Reproduces NamespaceItem::load()'s filter composition:
 ///   - no namespace: the database filter as-is
 ///   - namespace:    "<ns><sep><filter>", unless the filter already starts
@@ -183,7 +191,11 @@ pub async fn scan_keys(
     let cursor_value = cursor
         .parse::<u64>()
         .map_err(|_| AppError::Invalid(format!("Invalid SCAN cursor: {cursor}")))?;
-    let count = page_size.clamp(1, 1_000);
+    let count = if page_size == 0 {
+        DEFAULT_SCAN_PAGE_SIZE
+    } else {
+        page_size.clamp(1, MAX_SCAN_PAGE_SIZE)
+    };
     let pattern = build_match_pattern(namespace, filter, &config.namespace_separator);
 
     let (next_cursor, keys): (String, Vec<String>) = query_with_timeout(

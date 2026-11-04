@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Metadata shown above the value editor. Mirrors the information the original
 /// `KeyModel` exposes (type/TTL) plus the read-only extras requested for this
@@ -24,7 +24,7 @@ pub struct KeyValueInfo {
 
 /// One cell of a table row. Binary content is base64 encoded; UTF-8 text is
 /// sent as-is. `truncated` only applies to the single-value (string) editor.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ValueCell {
     pub encoding: String,

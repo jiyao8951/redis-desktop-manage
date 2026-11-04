@@ -143,7 +143,7 @@ mod smoke_tests {
             seen_types.insert(info.key_type.clone());
             match info.key_type.as_str() {
                 "string" if !string_checked => {
-                    let chunk = read_string_chunk(&mut manager, &config, key, 0, 4096)
+                    let chunk = read_string_chunk(&mut manager, &config, key, 0, 4096, None)
                         .await
                         .expect("read_string_chunk");
                     println!(

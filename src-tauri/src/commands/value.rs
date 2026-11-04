@@ -1,16 +1,8 @@
 use tauri::{AppHandle, State};
 
 use crate::error::AppResult;
-use crate::models::connection::ConnectionConfig;
 use crate::models::value::{KeyValueChunk, KeyValueInfo, ValuePage};
 use crate::state::AppState;
-
-use super::with_db;
-
-async fn load_config(app: &AppState, connection_id: &str) -> AppResult<ConnectionConfig> {
-    let id = connection_id.to_string();
-    with_db(app, move |conn| crate::db::get_config(conn, &id)).await
-}
 
 #[tauri::command]
 pub async fn key_value_info(
@@ -20,7 +12,7 @@ pub async fn key_value_info(
     key: String,
 ) -> AppResult<KeyValueInfo> {
     let app = state.inner();
-    let config = load_config(app, &connection_id).await?;
+    let config = app.connection_config(&connection_id).await?;
     let mut conn = app.pool.get(&connection_id, db, &config).await?;
     crate::redis::key_value_info(&mut conn, &config, &key).await
 }
@@ -33,11 +25,12 @@ pub async fn read_string_chunk(
     key: String,
     offset: u64,
     limit: u32,
+    known_total: Option<u64>,
 ) -> AppResult<KeyValueChunk> {
     let app = state.inner();
-    let config = load_config(app, &connection_id).await?;
+    let config = app.connection_config(&connection_id).await?;
     let mut conn = app.pool.get(&connection_id, db, &config).await?;
-    crate::redis::read_string_chunk(&mut conn, &config, &key, offset, limit).await
+    crate::redis::read_string_chunk(&mut conn, &config, &key, offset, limit, known_total).await
 }
 
 #[tauri::command]
@@ -53,7 +46,7 @@ pub async fn read_value_page(
     reverse: bool,
 ) -> AppResult<ValuePage> {
     let app = state.inner();
-    let config = load_config(app, &connection_id).await?;
+    let config = app.connection_config(&connection_id).await?;
     let mut conn = app.pool.get(&connection_id, db, &config).await?;
     crate::redis::read_value_page(
         &mut conn,
@@ -77,7 +70,7 @@ pub async fn save_string_value(
     value: crate::redis::CellInput,
 ) -> AppResult<()> {
     let app = state.inner();
-    let config = load_config(app, &connection_id).await?;
+    let config = app.connection_config(&connection_id).await?;
     let mut conn = app.pool.get(&connection_id, db, &config).await?;
     crate::redis::save_string_value(&mut conn, &config, &key, &value.to_bytes()?).await
 }
@@ -92,7 +85,7 @@ pub async fn update_value_row(
     request: crate::redis::RowEditRequest,
 ) -> AppResult<()> {
     let app = state.inner();
-    let config = load_config(app, &connection_id).await?;
+    let config = app.connection_config(&connection_id).await?;
     let mut conn = app.pool.get(&connection_id, db, &config).await?;
     crate::redis::update_row(&mut conn, &config, &key, &key_type, &request).await
 }
@@ -107,7 +100,7 @@ pub async fn add_value_row(
     cells: Vec<crate::redis::CellInput>,
 ) -> AppResult<()> {
     let app = state.inner();
-    let config = load_config(app, &connection_id).await?;
+    let config = app.connection_config(&connection_id).await?;
     let mut conn = app.pool.get(&connection_id, db, &config).await?;
     crate::redis::add_row(&mut conn, &config, &key, &key_type, &cells).await
 }
@@ -123,7 +116,7 @@ pub async fn delete_value_row(
     position: Option<i64>,
 ) -> AppResult<()> {
     let app = state.inner();
-    let config = load_config(app, &connection_id).await?;
+    let config = app.connection_config(&connection_id).await?;
     let mut conn = app.pool.get(&connection_id, db, &config).await?;
     crate::redis::delete_row(&mut conn, &config, &key, &key_type, &old, position).await
 }
@@ -137,7 +130,7 @@ pub async fn set_key_ttl(
     ttl: i64,
 ) -> AppResult<()> {
     let app = state.inner();
-    let config = load_config(app, &connection_id).await?;
+    let config = app.connection_config(&connection_id).await?;
     let mut conn = app.pool.get(&connection_id, db, &config).await?;
     crate::redis::set_ttl(&mut conn, &config, &key, ttl).await
 }
@@ -150,7 +143,7 @@ pub async fn persist_key(
     key: String,
 ) -> AppResult<()> {
     let app = state.inner();
-    let config = load_config(app, &connection_id).await?;
+    let config = app.connection_config(&connection_id).await?;
     let mut conn = app.pool.get(&connection_id, db, &config).await?;
     crate::redis::persist_key(&mut conn, &config, &key).await
 }
@@ -165,7 +158,7 @@ pub async fn rename_key(
     ttl: i64,
 ) -> AppResult<()> {
     let app = state.inner();
-    let config = load_config(app, &connection_id).await?;
+    let config = app.connection_config(&connection_id).await?;
     let mut conn = app.pool.get(&connection_id, db, &config).await?;
     crate::redis::rename_key(&mut conn, &config, &key, &new_key, ttl).await
 }
@@ -178,7 +171,7 @@ pub async fn delete_key(
     key: String,
 ) -> AppResult<i64> {
     let app = state.inner();
-    let config = load_config(app, &connection_id).await?;
+    let config = app.connection_config(&connection_id).await?;
     let mut conn = app.pool.get(&connection_id, db, &config).await?;
     crate::redis::delete_key(&mut conn, &config, &key).await
 }
@@ -191,7 +184,7 @@ pub async fn delete_keys(
     keys: Vec<String>,
 ) -> AppResult<u64> {
     let app = state.inner();
-    let config = load_config(app, &connection_id).await?;
+    let config = app.connection_config(&connection_id).await?;
     let mut conn = app.pool.get(&connection_id, db, &config).await?;
     crate::redis::delete_keys(&mut conn, &config, &keys).await
 }
@@ -205,7 +198,7 @@ pub async fn delete_keys_by_pattern(
     limit: u64,
 ) -> AppResult<u64> {
     let app = state.inner();
-    let config = load_config(app, &connection_id).await?;
+    let config = app.connection_config(&connection_id).await?;
     let mut conn = app.pool.get(&connection_id, db, &config).await?;
     crate::redis::delete_keys_by_pattern(&mut conn, &config, &pattern, limit).await
 }
@@ -217,7 +210,7 @@ pub async fn flush_database(
     db: u32,
 ) -> AppResult<()> {
     let app = state.inner();
-    let config = load_config(app, &connection_id).await?;
+    let config = app.connection_config(&connection_id).await?;
     let mut conn = app.pool.get(&connection_id, db, &config).await?;
     crate::redis::flush_db(&mut conn, &config).await
 }
@@ -233,7 +226,7 @@ pub async fn set_ttl_by_pattern(
     limit: u64,
 ) -> AppResult<u64> {
     let app = state.inner();
-    let config = load_config(app, &connection_id).await?;
+    let config = app.connection_config(&connection_id).await?;
     let mut conn = app.pool.get(&connection_id, db, &config).await?;
     crate::redis::set_ttl_by_pattern(&mut conn, &config, &pattern, ttl, limit).await
 }
@@ -254,8 +247,8 @@ pub async fn copy_keys(
     limit: u64,
 ) -> AppResult<u64> {
     let app = state.inner();
-    let source_config = load_config(app, &source_connection_id).await?;
-    let target_config = load_config(app, &target_connection_id).await?;
+    let source_config = app.connection_config(&source_connection_id).await?;
+    let target_config = app.connection_config(&target_connection_id).await?;
     let mut source = app
         .pool
         .get(&source_connection_id, source_db, &source_config)
@@ -285,7 +278,7 @@ pub async fn create_key(
     request: crate::redis::NewKeyRequest,
 ) -> AppResult<()> {
     let app = state.inner();
-    let config = load_config(app, &connection_id).await?;
+    let config = app.connection_config(&connection_id).await?;
     let mut conn = app.pool.get(&connection_id, db, &config).await?;
     crate::redis::create_key(&mut conn, &config, &request).await
 }
@@ -298,7 +291,7 @@ pub async fn start_live_update(
     db: u32,
 ) -> AppResult<()> {
     let app_state = state.inner();
-    let config = load_config(app_state, &connection_id).await?;
+    let config = app_state.connection_config(&connection_id).await?;
     crate::redis::start_live_update(app, &app_state.live, &config, &connection_id, db).await
 }
 

@@ -241,18 +241,9 @@ pub fn build_add_row(
             expect_cells(cells, 1, key_type)?;
             Ok(vec![Command::new("LPUSH", vec![arg(key), cells[0].clone()])])
         }
-        "stream" => {
-            expect_cells(cells, 2, key_type)?;
-            let id = if cells[0].is_empty() {
-                "*".to_string()
-            } else {
-                String::from_utf8_lossy(&cells[0]).into_owned()
-            };
-            let fields = stream_fields(&cells[1])?;
-            let mut args = vec![arg(key), arg(id)];
-            args.extend(fields);
-            Ok(vec![Command::new("XADD", args)])
-        }
+        "stream" => Err(AppError::Unsupported(
+            "Redis Streams entries are read-only in the value editor".into(),
+        )),
         other => Err(AppError::Unsupported(format!(
             "Cannot create a key of type \"{other}\""
         ))),
@@ -291,10 +282,9 @@ pub fn build_delete_row(
                 Command::new("LREM", vec![arg(key), arg("0"), arg(&token)]),
             ])
         }
-        "stream" => {
-            expect_cells(old, 2, key_type)?;
-            Ok(vec![Command::new("XDEL", vec![arg(key), old[0].clone()])])
-        }
+        "stream" => Err(AppError::Unsupported(
+            "Redis Streams entries are read-only in the value editor".into(),
+        )),
         other => Err(AppError::Unsupported(format!(
             "The value editor does not support type \"{other}\""
         ))),
@@ -305,13 +295,26 @@ pub fn build_set_ttl(key: &str, ttl: i64) -> Command {
     Command::new("EXPIRE", vec![arg(key), arg(ttl.to_string())])
 }
 
+/// Bulk TTL semantic: `0` removes the expiry instead of `EXPIRE 0` (which
+/// deletes the key), while negative values keep the Redis delete behaviour.
+pub fn build_ttl_command(key: &str, ttl: i64) -> Command {
+    if ttl == 0 {
+        build_persist(key)
+    } else {
+        build_set_ttl(key, ttl)
+    }
+}
+
 pub fn build_persist(key: &str) -> Command {
     Command::new("PERSIST", vec![arg(key)])
 }
 
-pub fn build_restore(key: &str, ttl: i64, payload: &[u8]) -> Command {
-    let ttl = if ttl > 0 { ttl } else { 0 };
-    Command::new("RESTORE", vec![arg(key), arg(ttl.to_string()), arg(payload)])
+/// Rename/copy restore payload. Callers pass seconds (the editor shows `TTL`
+/// in seconds), but RESTORE expects milliseconds, so the unit is converted here
+/// exactly like `build_copy_restore`.
+pub fn build_restore(key: &str, ttl_seconds: i64, payload: &[u8]) -> Command {
+    let ttl_ms = ttl_seconds.max(0).saturating_mul(1000);
+    Command::new("RESTORE", vec![arg(key), arg(ttl_ms.to_string()), arg(payload)])
 }
 
 pub fn build_delete_keys(keys: &[String]) -> Command {
@@ -436,6 +439,23 @@ async fn run_all(
     Ok(())
 }
 
+/// Sends several integer-reply commands in one round trip (bulk TTL updates).
+async fn run_pipeline(
+    conn: &mut ConnectionManager,
+    config: &ConnectionConfig,
+    commands: &[Command],
+) -> AppResult<Vec<i64>> {
+    let mut pipe = redis::pipe();
+    for command in commands {
+        let item = pipe.cmd(command.name);
+        for value in &command.args {
+            item.arg(value);
+        }
+    }
+    let replies: Vec<i64> = query_with_timeout(execute_timeout(config), pipe.query_async(conn)).await?;
+    Ok(replies)
+}
+
 fn integer(value: &redis::Value) -> i64 {
     redis::from_redis_value::<i64>(value).unwrap_or(0)
 }
@@ -501,6 +521,11 @@ pub async fn set_ttl(
     key: &str,
     ttl: i64,
 ) -> AppResult<()> {
+    if ttl <= 0 {
+        return Err(AppError::Invalid(
+            "TTL must be greater than zero; use PERSIST to remove an expiry".into(),
+        ));
+    }
     let reply = run(conn, config, &build_set_ttl(key, ttl)).await?;
     if integer(&reply) == 0 {
         return Err(AppError::Message(format!(
@@ -648,10 +673,9 @@ async fn scan_pattern_page(
     Ok((next.parse::<u64>().unwrap_or(0), keys))
 }
 
-/// Bulk "Set TTL for multiple keys": SCAN the pattern, then EXPIRE every hit.
-/// Mirrors TtlOperation, which pipelines EXPIRE for the affected keys. A
-/// negative TTL is passed through because Redis treats EXPIRE < 0 as a delete
-/// (the original dialog offered -1..10,000,000).
+/// Bulk "Set TTL for multiple keys": SCAN the pattern, then send EXPIRE/PERSIST
+/// in small pipelines. `0` means PERSIST (never `EXPIRE 0`, which would delete
+/// the key); negative values keep the original "delete matching keys" semantic.
 pub async fn set_ttl_by_pattern(
     conn: &mut ConnectionManager,
     config: &ConnectionConfig,
@@ -659,16 +683,25 @@ pub async fn set_ttl_by_pattern(
     ttl: i64,
     limit: u64,
 ) -> AppResult<u64> {
+    const PIPELINE_BATCH: usize = 200;
     let mut cursor = 0u64;
     let mut changed = 0u64;
 
     loop {
         let (next, keys) = scan_pattern_page(conn, config, cursor, pattern).await?;
-        for key in &keys {
-            let reply = run(conn, config, &build_set_ttl(key, ttl)).await?;
-            if integer(&reply) > 0 {
-                changed += 1;
-            }
+        let commands: Vec<Command> = keys
+            .iter()
+            .map(|key| build_ttl_command(key, ttl))
+            .collect();
+        // Never overshoot the caller's safety limit: a pipeline batch is sized
+        // by the number of keys we may still touch.
+        let remaining = limit.saturating_sub(changed) as usize;
+        if remaining == 0 {
+            return Ok(changed);
+        }
+        for batch in commands.chunks(PIPELINE_BATCH.min(remaining).max(1)) {
+            let replies = run_pipeline(conn, config, batch).await?;
+            changed += replies.iter().filter(|reply| **reply > 0).count() as u64;
             if changed >= limit {
                 return Ok(changed);
             }
@@ -904,41 +937,17 @@ mod tests {
     }
 
     #[test]
-    fn stream_add_flattens_json_object() {
+    fn stream_add_is_rejected_by_the_value_editor() {
         let cells = vec![
             CellInput::text("1-1"),
-            CellInput::text(r#"{"name":"alice","meta":{"level":3}}"#),
+            CellInput::text(r#"{"name":"alice"}"#),
         ];
         let bytes: Vec<Vec<u8>> = cells.iter().map(|cell| cell.to_bytes().unwrap()).collect();
-        let commands = build_add_row("stream", "st", &bytes).unwrap();
-        assert_eq!(commands[0].name, "XADD");
-        assert_eq!(commands[0].args[0], b"st".to_vec());
-        assert_eq!(commands[0].args[1], b"1-1".to_vec());
-        // serde_json maps may be ordered by key, so assert on pairs.
-        let fields = &commands[0].args[2..];
-        assert_eq!(fields.len(), 4);
-        let position = fields
-            .chunks(2)
-            .position(|pair| pair[0] == b"name")
-            .expect("name field");
-        assert_eq!(fields[position * 2 + 1], b"alice".to_vec());
-        let meta = fields
-            .chunks(2)
-            .position(|pair| pair[0] == b"meta")
-            .expect("meta field");
-        assert_eq!(fields[meta * 2 + 1], br#"{"level":3}"#.to_vec());
+        assert!(build_add_row("stream", "st", &bytes).is_err());
     }
 
     #[test]
-    fn stream_add_defaults_to_auto_id() {
-        let cells = vec![CellInput::text(""), CellInput::text(r#"{"f":"v"}"#)];
-        let bytes: Vec<Vec<u8>> = cells.iter().map(|cell| cell.to_bytes().unwrap()).collect();
-        let commands = build_add_row("stream", "st", &bytes).unwrap();
-        assert_eq!(commands[0].args[1], b"*".to_vec());
-    }
-
-    #[test]
-    fn stream_update_is_rejected() {
+    fn stream_update_and_delete_are_rejected() {
         assert!(build_update_row(
             "stream",
             "st",
@@ -947,14 +956,7 @@ mod tests {
             None
         )
         .is_err());
-    }
-
-    #[test]
-    fn stream_delete_uses_xdel() {
-        let commands =
-            build_delete_row("stream", "st", &plain(&["1-1", "{}"]), None).unwrap();
-        assert_eq!(commands[0].name, "XDEL");
-        assert_eq!(commands[0].args, plain(&["st", "1-1"]));
+        assert!(build_delete_row("stream", "st", &plain(&["1-1", "{}"]), None).is_err());
     }
 
     #[test]
@@ -973,6 +975,30 @@ mod tests {
             build_restore("k", -1, b"payload").args,
             plain(&["k", "0", "payload"])
         );
+    }
+
+    #[test]
+    fn restore_converts_seconds_to_milliseconds() {
+        // Rename passes the TTL shown by the editor (seconds); RESTORE wants ms.
+        assert_eq!(
+            build_restore("k", 60, b"payload").args,
+            plain(&["k", "60000", "payload"])
+        );
+        assert_eq!(
+            build_restore("k", 0, b"payload").args,
+            plain(&["k", "0", "payload"])
+        );
+    }
+
+    #[test]
+    fn bulk_ttl_zero_means_persist() {
+        assert_eq!(build_ttl_command("k", 0).name, "PERSIST");
+        assert_eq!(build_ttl_command("k", 0).args, plain(&["k"]));
+        assert_eq!(build_ttl_command("k", 30).name, "EXPIRE");
+        assert_eq!(build_ttl_command("k", 30).args, plain(&["k", "30"]));
+        // Negative values keep the original "delete matching keys" behaviour.
+        assert_eq!(build_ttl_command("k", -1).name, "EXPIRE");
+        assert_eq!(build_ttl_command("k", -1).args, plain(&["k", "-1"]));
     }
 
     #[test]

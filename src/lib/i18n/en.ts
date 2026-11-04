@@ -217,6 +217,7 @@ export const en = {
   // Connection tree: menus
   "tree.reloadDatabases": "Reload Databases",
   "tree.unloadAll": "Unload All Data",
+  "tree.closeConnection": "Close Connection",
   "tree.editConnection": "Edit Connection",
   "tree.duplicateConnection": "Duplicate Connection",
   "tree.copyHost": "Copy Host",
@@ -249,6 +250,9 @@ export const en = {
   "tree.filterIsKey": "That pattern is an existing key; the filter was not applied.",
   "tree.existsFailed": "EXISTS check failed: {error}",
   "tree.copied": "Copied: {text}",
+  "tree.closedConnection":
+    'Closed connection "{name}". Server connections and subscriptions were released; the saved configuration is unchanged.',
+  "tree.closeConnectionFailed": "Closing the connection failed: {error}",
   "tree.liveEnabled": "Live update enabled for db{db}",
   "tree.liveDisabled": "Live update disabled for db{db}",
   "tree.deleted": "Deleted {key}",
@@ -300,7 +304,7 @@ export const en = {
   "bulk.database": "Database number:",
   "bulk.pattern": "Key pattern",
   "bulk.ttl": "New TTL value (seconds)",
-  "bulk.ttlHint": "-1 deletes matching keys, 0 removes the TTL.",
+  "bulk.ttlHint": "0 removes the TTL (PERSIST); a negative value deletes matching keys.",
   "bulk.setTtl": "Set TTL",
   "bulk.copy": "Copy keys",
   "bulk.targetServer": "Destination Redis Server",
@@ -440,7 +444,8 @@ export const en = {
   "value.unsupported": "The value editor does not support this key type.",
   "value.bytes": "{loaded} / {total} bytes",
   "value.displayLimit": "display limit {limit}",
-  "value.truncatedWarning": "Value truncated for display; saving would overwrite the full value.",
+  "value.truncatedWarning":
+    "Value is not fully loaded; editing is disabled until you press Load more.",
   "value.loadMore": "Load more",
   "value.items": "{count} items",
   "value.reverseOrder": "Reverse order",

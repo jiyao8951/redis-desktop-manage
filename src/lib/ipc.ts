@@ -39,6 +39,8 @@ export const ipc = {
   saveConnection: (config: ConnectionConfig) =>
     invoke<ConnectionConfig>("save_connection", { config }),
   deleteConnection: (id: string) => invoke<void>("delete_connection", { id }),
+  /** Releases pooled connections + Live Update/Monitor subscriptions, keeps the config. */
+  closeConnection: (id: string) => invoke<void>("close_connection", { id }),
   moveConnection: (id: string, groupId: string | null) =>
     invoke<void>("move_connection", { id, groupId }),
   duplicateConnection: (id: string) => invoke<ConnectionConfig>("duplicate_connection", { id }),
@@ -74,6 +76,8 @@ export const ipc = {
     key: string;
     offset: number;
     limit: number;
+    /** Total length already reported by the first chunk; skips STRLEN. */
+    knownTotal?: number;
   }) => invoke<KeyValueChunk>("read_string_chunk", args),
   readValuePage: (args: {
     connectionId: string;

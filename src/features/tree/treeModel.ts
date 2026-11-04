@@ -90,8 +90,10 @@ export function buildChildren(
     const nsFull = parentFull && separator ? `${parentFull}${separator}${nsName}` : nsName;
     const nextKey = sorted[i + 1] ?? "";
 
-    // A namespace-like segment with no sibling key stays a plain key.
-    if (!nextKey || !nextKey.includes(nsFull)) {
+    // A namespace-like segment with no sibling key stays a plain key. The
+    // check must be a path-prefix match: `includes` would fold unrelated keys
+    // such as `ba:1` into the `a` namespace.
+    if (!nextKey || !nextKey.startsWith(`${nsFull}${separator}`)) {
       children.push(keyNode(dbKey, key, parentFull, separator, shortNames));
       i += 1;
       continue;
