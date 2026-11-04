@@ -1,0 +1,128 @@
+@import "tailwindcss";
+
+/* Tailwind 4: class-based dark mode must be declared explicitly (v4 defaults
+   to prefers-color-scheme). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Tailwind 4 theme tokens replace the removed tailwind.config.ts. Named
+   colors/fonts/sizes/spacing are generated from these variables. */
+@theme {
+  --color-win: rgb(var(--win));
+  --color-base: rgb(var(--base));
+  --color-surface: rgb(var(--surface));
+  --color-text: rgb(var(--text));
+  --color-muted: rgb(var(--muted));
+  --color-border: rgb(var(--border));
+  --color-highlight: rgb(var(--highlight));
+  --color-accent: rgb(var(--accent));
+  --color-danger: rgb(var(--danger));
+  --color-success: rgb(var(--success));
+
+  --font-ui: "Segoe UI", Tahoma, sans-serif;
+  --font-mono: Consolas, Menlo, monospace;
+
+  --text-tree: 12px;
+  --text-tree--line-height: 18px;
+
+  --spacing-row: 28px;
+}
+
+/* Light palette mirrors Qt's sysPalette defaults; dark palette mirrors the
+   original app's dark theme (window #353535-ish, base #2a2a2a). */
+:root {
+  --win: 240 240 240;
+  --base: 255 255 255;
+  --surface: 247 247 247;
+  --text: 32 32 32;
+  --muted: 112 112 112;
+  --border: 190 190 190;
+  --highlight: 48 110 178;
+  --accent: 198 48 43; /* RESP.app red used by primary buttons */
+  --danger: 190 45 45;
+  --success: 40 140 80;
+  color-scheme: light;
+}
+
+.dark {
+  --win: 45 45 48;
+  --base: 37 37 40;
+  --surface: 43 43 46;
+  --text: 218 218 218;
+  --muted: 150 150 150;
+  --border: 70 70 74;
+  --highlight: 42 93 148;
+  --accent: 214 66 60;
+  --danger: 226 92 92;
+  --success: 96 186 128;
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  @apply bg-win text-text font-ui text-[13px];
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgb(var(--surface));
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--border));
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--muted));
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+  color: inherit;
+}
+
+input:focus,
+select:focus,
+button:focus,
+[tabindex]:focus {
+  outline: 1px solid rgb(var(--highlight));
+  outline-offset: -1px;
+}
+
+/* Tree rows must not show a focus ring inside the virtualized viewport. */
+.tree-row:focus {
+  outline: none;
+}
+
+/* Simple indeterminate spinner used for lazy-loading nodes. */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinner {
+  animation: spin 0.9s linear infinite;
+}
+
+.dialog-backdrop {
+  background: rgb(0 0 0 / 0.45);
+}

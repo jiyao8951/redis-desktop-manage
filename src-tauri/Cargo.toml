@@ -1,0 +1,49 @@
+[package]
+name = "resp-app"
+version = "1.0.0"
+description = "RESP.app desktop client rebuilt with Tauri v2"
+authors = ["RESP.app contributors"]
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "resp_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+
+# Redis client. `connection-manager` gives us a reconnecting multiplexed
+# connection per (connection, db). `tokio-rustls-comp` is the async TLS feature
+# (plain `tls-rustls` alone fails to compile redis 0.27's async module);
+# `tls-rustls-insecure` enables the `#insecure` URL fragment.
+redis = { version = "0.27", features = [
+  "tokio-comp",
+  "connection-manager",
+  "tokio-rustls-comp",
+  "tls-rustls-insecure",
+] }
+
+# SQLite is embedded (bundled) so Windows users need no system SQLite.
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+uuid = { version = "1", features = ["v4"] }
+thiserror = "2"
+base64 = "0.22"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
