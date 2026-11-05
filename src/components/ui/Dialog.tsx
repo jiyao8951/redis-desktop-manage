@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+﻿import { useEffect, type ReactNode } from "react";
 
 import { useT } from "../../lib/i18n";
 import { Icon } from "./Icon";
@@ -35,13 +35,15 @@ export default function Dialog({
     >
       <div
         className="flex max-h-[90vh] flex-col overflow-hidden rounded-lg border border-border bg-base shadow-2xl"
-        style={{ width, maxWidth: "calc(100vw - 32px)" }}
+        style={{
+          width: `min(calc(${width}px * var(--ui-dialog-scale)), calc(100vw - 32px))`,
+        }}
         role="dialog"
         aria-modal="true"
         aria-label={title}
       >
-        <header className="flex h-11 shrink-0 items-center gap-3 border-b border-border bg-surface px-4">
-          <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">{title}</span>
+        <header className="flex h-[var(--ui-toolbar)] shrink-0 items-center gap-3 border-b border-border bg-surface px-4">
+          <span className="min-w-0 flex-1 truncate t-14 font-semibold">{title}</span>
           <button
             type="button"
             className="rounded-sm p-1 text-muted transition-colors hover:bg-win hover:text-text"

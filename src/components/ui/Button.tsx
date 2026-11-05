@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+﻿import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger";
 
@@ -26,7 +26,7 @@ export default function Button({
   return (
     <button
       type="button"
-      className={`inline-flex h-7 shrink-0 select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-sm border px-2.5 text-[12px] leading-none transition-colors disabled:cursor-not-allowed ${STYLES[variant]} ${className}`}
+      className={`inline-flex h-[var(--ui-control)] shrink-0 select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-sm border px-3 t-13 leading-none transition-colors disabled:cursor-not-allowed ${STYLES[variant]} ${className}`}
       {...rest}
     >
       {children}

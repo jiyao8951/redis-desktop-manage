@@ -37,7 +37,7 @@ if (-not (Test-Path "node_modules")) {
 }
 
 $bundleArg = if ($Bundles -eq "all") { "nsis,msi" } else { $Bundles }
-Write-Host "Building RESP.app bundles: $bundleArg" -ForegroundColor Cyan
+Write-Host "Building Redis Desktop Manager bundles: $bundleArg" -ForegroundColor Cyan
 # `tauri build` runs `bun run build` (tsc --noEmit + vp build) before compiling
 # the Rust workspace.
 bun run tauri:build -- --bundles $bundleArg

@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
+﻿import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
 
 export function Field({
   label,
@@ -13,9 +13,9 @@ export function Field({
 }) {
   return (
     <label className={`block ${className}`}>
-      <span className="mb-1.5 block text-[11px] font-medium text-muted">{label}</span>
+      <span className="mb-1.5 block t-12 font-medium text-muted">{label}</span>
       {children}
-      {hint ? <span className="mt-1 block text-[11px] leading-4 text-muted">{hint}</span> : null}
+      {hint ? <span className="mt-1 block t-12 leading-4 text-muted">{hint}</span> : null}
     </label>
   );
 }
@@ -23,7 +23,7 @@ export function Field({
 export function TextInput({ className = "", ...rest }: InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
-      className={`h-8 w-full rounded-sm border border-border bg-base px-2.5 text-[12px] transition-colors placeholder:text-muted hover:border-muted/50 focus:border-highlight focus:outline-none read-only:opacity-60 ${className}`}
+      className={`h-[var(--ui-control-lg)] w-full rounded-sm border border-border bg-base px-2.5 t-13 transition-colors placeholder:text-muted hover:border-muted/50 focus:border-highlight focus:outline-none read-only:opacity-60 ${className}`}
       {...rest}
     />
   );
@@ -46,12 +46,12 @@ export function Checkbox({
 }) {
   return (
     <label
-      className={`inline-flex select-none items-center gap-2 text-[12px] ${
+      className={`inline-flex select-none items-center gap-2 t-13 ${
         disabled ? "opacity-60" : "cursor-pointer"
       }`}
     >
       <span
-        className={`flex h-4 w-4 items-center justify-center rounded-[3px] border text-[10px] font-semibold transition-colors ${
+        className={`flex h-4 w-4 items-center justify-center rounded-[3px] border t-11 font-semibold transition-colors ${
           checked ? "border-highlight bg-highlight text-white" : "border-border bg-base"
         }`}
         aria-hidden="true"
@@ -83,7 +83,7 @@ export function Radio({
 }) {
   return (
     <label
-      className={`inline-flex select-none items-center gap-2 text-[12px] ${
+      className={`inline-flex select-none items-center gap-2 t-13 ${
         disabled ? "opacity-60" : "cursor-pointer"
       }`}
     >
@@ -137,7 +137,7 @@ export function Select({
 }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <select
-      className={`h-8 w-full rounded-sm border border-border bg-base px-2 text-[12px] transition-colors hover:border-muted/50 focus:border-highlight focus:outline-none ${className}`}
+      className={`h-[var(--ui-control-lg)] w-full rounded-sm border border-border bg-base px-2 t-13 transition-colors hover:border-muted/50 focus:border-highlight focus:outline-none ${className}`}
       {...rest}
     >
       {children}

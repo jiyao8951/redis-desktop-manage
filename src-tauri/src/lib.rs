@@ -40,7 +40,7 @@ pub fn run() {
                     if app_state.begin_shutdown() {
                         tauri::async_runtime::block_on(app_state.shutdown());
                         #[cfg(debug_assertions)]
-                        eprintln!("RESP.app: released Redis connections and subscriptions");
+                        eprintln!("Redis Desktop Manager: released Redis connections and subscriptions");
                     }
                 }
             }
@@ -98,5 +98,5 @@ pub fn run() {
             commands::console_execute,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running RESP.app");
+        .expect("error while running Redis Desktop Manager");
 }

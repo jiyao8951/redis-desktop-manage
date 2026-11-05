@@ -55,7 +55,7 @@ try {
     }
     New-Item -ItemType Directory -Path $distDir | Out-Null
 
-    $finalName = "RESP.app_${version}_portable_x64.exe"
+    $finalName = "RedisDesktopManager_${version}_portable_x64.exe"
     $finalPath = Join-Path $distDir $finalName
     Copy-Item $releaseExe $finalPath
 

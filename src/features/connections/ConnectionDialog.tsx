@@ -1,5 +1,4 @@
-import { useState, type ReactNode } from "react";
-import { openUrl } from "@tauri-apps/plugin-opener";
+﻿import { useState, type ReactNode } from "react";
 import Dialog from "../../components/ui/Dialog";
 import Button from "../../components/ui/Button";
 import FilePathInput from "../../components/ui/FilePathInput";
@@ -11,44 +10,7 @@ import { clampInt, errMessage } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import type { ConnectionConfig, TestResult } from "../../lib/types";
 
-type Tab = "wizard" | "basic" | "advanced";
-
-const GUIDE_TILES: { label: MessageLabel; url: string }[] = [
-  {
-    label: "conn.guide.local",
-    url: "http://docs.resp.app/en/latest/quick-start/#connect-to-a-local-or-public-redis-server",
-  },
-  {
-    label: "conn.guide.tls",
-    url: "http://docs.resp.app/en/latest/quick-start/#connect-to-a-public-redis-server-with-ssl",
-  },
-  {
-    label: "conn.guide.ssh",
-    url: "http://docs.resp.app/en/latest/quick-start/#connect-to-private-redis-server-via-ssh-tunnel",
-  },
-  {
-    label: "conn.guide.unix",
-    url: "http://docs.resp.app/en/latest/quick-start/#connect-to-a-unix-socket",
-  },
-  {
-    label: "conn.guide.digitalOcean",
-    url: "http://docs.resp.app/en/latest/quick-start/#digital-ocean-managed-redis",
-  },
-  {
-    label: "conn.guide.azure",
-    url: "http://docs.resp.app/en/latest/quick-start/#microsoft-azure-redis-cache",
-  },
-  {
-    label: "conn.guide.aws",
-    url: "http://docs.resp.app/en/latest/quick-start/#aws-elasticache",
-  },
-  {
-    label: "conn.guide.heroku",
-    url: "http://docs.resp.app/en/latest/quick-start/#heroku-redis",
-  },
-];
-
-type MessageLabel = Parameters<ReturnType<typeof useT>>[0];
+type Tab = "basic" | "advanced";
 
 /**
  * Rebuild of src/qml/connections/ConnectionSettignsDialog.qml.
@@ -71,8 +33,7 @@ export default function ConnectionDialog({
 }) {
   const t = useT();
   const [draft, setDraft] = useState<ConnectionConfig>(initial);
-  const [tab, setTab] = useState<Tab>(isNew ? "wizard" : "basic");
-  const [url, setUrl] = useState("");
+  const [tab, setTab] = useState<Tab>("basic");
   const [sshEnabled, setSshEnabled] = useState(Boolean(initial.sshHost));
   const [useSshKey, setUseSshKey] = useState(Boolean(initial.sshPrivateKey));
   const [useSshPassword, setUseSshPassword] = useState(
@@ -133,37 +94,15 @@ export default function ConnectionDialog({
     }
   };
 
-  const importUrl = async () => {
-    try {
-      const parsed = await ipc.parseRedisUrl(url);
-      setDraft((d) => ({
-        ...parsed,
-        id: d.id,
-        groupId: d.groupId,
-        name: d.name || parsed.name,
-      }));
-      setSshEnabled(Boolean(parsed.sshHost));
-      setTab("basic");
-    } catch (e) {
-      setTestResult({ success: false, message: errMessage(e), warning: null, facts: null });
-      setInvalid(true);
-    }
-  };
-
   const footer = (
     <div className="flex w-full items-center gap-2">
       <Button onClick={() => void doTest()} disabled={busy}>
         {busy ? t("conn.testing") : t("conn.test")}
       </Button>
-      {!isNew ? (
-        <Button onClick={() => void openUrl("http://docs.resp.app/en/latest/quick-start/")}>
-          {t("conn.quickStart")}
-        </Button>
-      ) : null}
       {isNew ? (
         <button
           type="button"
-          className="text-[11px] text-muted underline-offset-2 hover:text-text hover:underline"
+          className="t-12 text-muted underline-offset-2 hover:text-text hover:underline"
           onClick={() => {
             setDraft(createEmptyConnection());
             onNotify(t("conn.resetDone"));
@@ -173,7 +112,7 @@ export default function ConnectionDialog({
         </button>
       ) : null}
       <div className="flex-1" />
-      {invalid ? <span className="text-[12px] text-danger">{t("conn.invalid")}</span> : null}
+      {invalid ? <span className="t-13 text-danger">{t("conn.invalid")}</span> : null}
       <Button onClick={onClose}>{t("common.cancel")}</Button>
       <Button variant="primary" onClick={doSave}>
         {t("common.ok")}
@@ -188,12 +127,7 @@ export default function ConnectionDialog({
       onClose={onClose}
       footer={footer}
     >
-      <div className="mb-4 inline-flex rounded-md border border-border bg-surface p-1 text-[12px]">
-        {isNew ? (
-          <TabButton active={tab === "wizard"} onClick={() => setTab("wizard")}>
-            {t("conn.tabWizard")}
-          </TabButton>
-        ) : null}
+      <div className="mb-4 inline-flex rounded-md border border-border bg-surface p-1 t-13">
         <TabButton active={tab === "basic"} onClick={() => setTab("basic")}>
           {t("conn.tabBasic")}
         </TabButton>
@@ -204,7 +138,7 @@ export default function ConnectionDialog({
 
       {testResult ? (
         <div
-          className={`mb-4 rounded-md border p-3 text-[12px] ${
+          className={`mb-4 rounded-md border p-3 t-13 ${
             testResult.success ? "border-success/50 bg-success/5" : "border-danger/50 bg-danger/5"
           }`}
         >
@@ -226,111 +160,11 @@ export default function ConnectionDialog({
       ) : null}
 
       <div className="min-h-[420px]">
-        {tab === "wizard" ? (
-          <div className="space-y-5">
-            <h3 className="text-[13px] font-semibold">{t("conn.urlHeading")}</h3>
-            <div className="flex gap-2">
-              <TextInput
-                value={url}
-                placeholder="redis://localhost:6379"
-                onChange={(e) => setUrl(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void importUrl();
-                }}
-              />
-              <Button onClick={() => void importUrl()} disabled={!url.trim()}>
-                {t("conn.import")}
-              </Button>
-            </div>
-            <p className="text-[12px] text-muted">
-              {t("conn.urlHelp")}{" "}
-              <button
-                type="button"
-                className="text-highlight underline-offset-2 hover:underline"
-                onClick={() =>
-                  void openUrl("https://www.iana.org/assignments/uri-schemes/prov/redis")
-                }
-              >
-                redis://
-              </button>
-              ,{" "}
-              <button
-                type="button"
-                className="text-highlight underline-offset-2 hover:underline"
-                onClick={() =>
-                  void openUrl("https://www.iana.org/assignments/uri-schemes/prov/rediss")
-                }
-              >
-                rediss://
-              </button>
-            </p>
-
-            <h3 className="text-[13px] font-semibold">{t("conn.guides")}</h3>
-            <div className="grid grid-cols-4 gap-2">
-              {GUIDE_TILES.map((tile) => (
-                <button
-                  key={tile.label}
-                  type="button"
-                  title={tile.url}
-                  className="flex h-[76px] items-center justify-center rounded-md border border-border bg-surface/50 px-2 text-center text-[12px] text-text transition-colors hover:border-highlight/60 hover:bg-surface"
-                  onClick={() => void openUrl(tile.url)}
-                >
-                  {t(tile.label)}
-                </button>
-              ))}
-            </div>
-
-            <div className="space-y-1 pt-1">
-              <h3 className="text-[13px] font-semibold">{t("conn.cannotConnect")}</h3>
-              <p className="text-[12px] text-muted">
-                <button
-                  className="text-highlight underline-offset-2 hover:underline"
-                  onClick={() => void openUrl("https://docs.resp.app/en/latest/quick-start/")}
-                >
-                  {t("conn.readDocs")}
-                </button>
-                ,{" "}
-                <button
-                  className="text-highlight underline-offset-2 hover:underline"
-                  onClick={() => void openUrl("mailto:support@resp.app")}
-                >
-                  {t("conn.contactSupport")}
-                </button>{" "}
-                {t("conn.orAsk")}{" "}
-                <button
-                  className="text-highlight underline-offset-2 hover:underline"
-                  onClick={() => void openUrl("https://t.me/RedisDesktopManager")}
-                >
-                  {t("conn.telegram")}
-                </button>
-              </p>
-            </div>
-
-            <div className="space-y-1">
-              <h3 className="text-[13px] font-semibold">{t("conn.noRedis")}</h3>
-              <button
-                className="text-[12px] text-highlight hover:underline"
-                onClick={() =>
-                  void openUrl(
-                    "https://redis.com/try-free/?utm_source=respapp&utm_medium=app&utm_campaign=newconn",
-                  )
-                }
-              >
-                {t("conn.redisCloud")}
-              </button>
-            </div>
-
-            <div className="flex justify-end pt-1">
-              <Button onClick={() => setTab("basic")}>{t("conn.skip")}</Button>
-            </div>
-          </div>
-        ) : null}
-
         {tab === "basic" ? (
           <div className="space-y-4">
             <Section title={t("conn.groupEndpoint")}>
               <div className="grid grid-cols-[120px_1fr] items-center gap-x-3 gap-y-2">
-                <span className="text-[12px] text-muted">{t("conn.name")}</span>
+                <span className="t-13 text-muted">{t("conn.name")}</span>
                 <TextInput
                   value={draft.name}
                   placeholder={t("conn.namePlaceholder")}
@@ -338,7 +172,7 @@ export default function ConnectionDialog({
                   onChange={(e) => set("name", e.target.value)}
                 />
 
-                <span className="text-[12px] text-muted">{t("conn.address")}</span>
+                <span className="t-13 text-muted">{t("conn.address")}</span>
                 <div className="flex items-center gap-1">
                   <TextInput
                     value={draft.host}
@@ -356,20 +190,20 @@ export default function ConnectionDialog({
                 </div>
               </div>
               {!sshEnabled && !draft.sslEnabled && draft.host.toLowerCase() === "localhost" ? (
-                <p className="mt-2 text-[12px] text-muted">{t("conn.localhostHint")}</p>
+                <p className="mt-2 t-13 text-muted">{t("conn.localhostHint")}</p>
               ) : null}
             </Section>
 
             <Section title={t("conn.groupAuth")}>
               <div className="grid grid-cols-[120px_1fr] items-center gap-x-3 gap-y-2">
-                <span className="text-[12px] text-muted">{t("conn.password")}</span>
+                <span className="t-13 text-muted">{t("conn.password")}</span>
                 <TextInput
                   type="password"
                   value={draft.auth}
                   placeholder={t("conn.passwordPlaceholder")}
                   onChange={(e) => set("auth", e.target.value)}
                 />
-                <span className="text-[12px] text-muted">{t("conn.username")}</span>
+                <span className="t-13 text-muted">{t("conn.username")}</span>
                 <TextInput
                   value={draft.username}
                   placeholder={t("conn.usernamePlaceholder")}
@@ -394,28 +228,28 @@ export default function ConnectionDialog({
 
               {draft.sslEnabled && !sshEnabled ? (
                 <div className="mt-3 grid grid-cols-[120px_1fr] items-center gap-x-3 gap-y-2">
-                  <span className="text-[12px] text-muted">{t("conn.publicKey")}</span>
+                  <span className="t-13 text-muted">{t("conn.publicKey")}</span>
                   <FilePathInput
                     path={draft.sslLocalCertPath}
                     placeholder={t("conn.publicKeyPlaceholder")}
                     filters={[{ name: t("conn.filterPublicKey"), extensions: ["pem", "crt"] }]}
                     onChange={(v) => set("sslLocalCertPath", v)}
                   />
-                  <span className="text-[12px] text-muted">{t("conn.privateKey")}</span>
+                  <span className="t-13 text-muted">{t("conn.privateKey")}</span>
                   <FilePathInput
                     path={draft.sslPrivateKeyPath}
                     placeholder={t("conn.privateKeyPlaceholder")}
                     filters={[{ name: t("conn.filterPrivateKey"), extensions: ["pem", "key"] }]}
                     onChange={(v) => set("sslPrivateKeyPath", v)}
                   />
-                  <span className="text-[12px] text-muted">{t("conn.authority")}</span>
+                  <span className="t-13 text-muted">{t("conn.authority")}</span>
                   <FilePathInput
                     path={draft.sslCaCertPath}
                     placeholder={t("conn.authorityPlaceholder")}
                     filters={[{ name: t("conn.filterAuthority"), extensions: ["pem", "crt"] }]}
                     onChange={(v) => set("sslCaCertPath", v)}
                   />
-                  <span className="text-[12px] text-muted">{t("conn.strictMode")}</span>
+                  <span className="t-13 text-muted">{t("conn.strictMode")}</span>
                   <Checkbox
                     checked={!draft.ignoreSslErrors}
                     onChange={(v) => set("ignoreSslErrors", !v)}
@@ -427,7 +261,7 @@ export default function ConnectionDialog({
               {sshEnabled ? (
                 <div className="mt-3 space-y-3 rounded-md border border-border bg-base p-3">
                   <div className="grid grid-cols-[120px_1fr] items-center gap-x-3 gap-y-2">
-                    <span className="text-[12px] text-muted">{t("conn.sshAddress")}</span>
+                    <span className="t-13 text-muted">{t("conn.sshAddress")}</span>
                     <div className="flex items-center gap-1">
                       <TextInput
                         value={draft.sshHost}
@@ -443,7 +277,7 @@ export default function ConnectionDialog({
                         onChange={(e) => set("sshPort", Number(e.target.value))}
                       />
                     </div>
-                    <span className="text-[12px] text-muted">{t("conn.sshUser")}</span>
+                    <span className="t-13 text-muted">{t("conn.sshUser")}</span>
                     <TextInput
                       value={draft.sshUser}
                       placeholder={t("conn.sshUserPlaceholder")}
@@ -526,13 +360,13 @@ export default function ConnectionDialog({
           <div className="space-y-4">
             <Section title={t("conn.keysLoading")}>
               <div className="grid grid-cols-[150px_1fr] items-center gap-x-3 gap-y-2">
-                <span className="text-[12px] text-muted">{t("conn.defaultFilter")}</span>
+                <span className="t-13 text-muted">{t("conn.defaultFilter")}</span>
                 <TextInput
                   value={draft.keysPattern}
                   placeholder={t("conn.defaultFilterPlaceholder")}
                   onChange={(e) => set("keysPattern", e.target.value)}
                 />
-                <span className="text-[12px] text-muted">{t("conn.namespaceSeparator")}</span>
+                <span className="t-13 text-muted">{t("conn.namespaceSeparator")}</span>
                 <TextInput
                   value={draft.namespaceSeparator}
                   placeholder={t("conn.namespaceSeparatorPlaceholder")}
@@ -543,23 +377,23 @@ export default function ConnectionDialog({
 
             <Section title={t("conn.timeouts")}>
               <div className="grid grid-cols-[150px_110px_1fr] items-center gap-x-3 gap-y-2">
-                <span className="text-[12px] text-muted">{t("conn.connectionTimeout")}</span>
+                <span className="t-13 text-muted">{t("conn.connectionTimeout")}</span>
                 <NumberInput
                   min={10}
                   max={100000}
                   value={draft.connectionTimeout / 1000}
                   onChange={(e) => set("connectionTimeout", Number(e.target.value) * 1000)}
                 />
-                <span className="text-[11px] text-muted">{t("conn.seconds")}</span>
-                <span className="text-[12px] text-muted">{t("conn.executionTimeout")}</span>
+                <span className="t-12 text-muted">{t("conn.seconds")}</span>
+                <span className="t-13 text-muted">{t("conn.executionTimeout")}</span>
                 <NumberInput
                   min={10}
                   max={100000}
                   value={draft.executeTimeout / 1000}
                   onChange={(e) => set("executeTimeout", Number(e.target.value) * 1000)}
                 />
-                <span className="text-[11px] text-muted">{t("conn.seconds")}</span>
-                <span className="text-[12px] text-muted">{t("conn.dbDiscovery")}</span>
+                <span className="t-12 text-muted">{t("conn.seconds")}</span>
+                <span className="t-13 text-muted">{t("conn.dbDiscovery")}</span>
                 <NumberInput
                   min={1}
                   max={100000}
@@ -580,7 +414,7 @@ export default function ConnectionDialog({
 
             <Section title={t("conn.protocolSection")}>
               <div className="grid grid-cols-[150px_1fr] items-center gap-x-3 gap-y-2">
-                <span className="text-[12px] text-muted">{t("conn.respProtocol")}</span>
+                <span className="t-13 text-muted">{t("conn.respProtocol")}</span>
                 <Select
                   value={draft.protocol}
                   onChange={(e) =>
@@ -590,7 +424,7 @@ export default function ConnectionDialog({
                   <option value="resp2">{t("conn.resp2")}</option>
                   <option value="resp3">{t("conn.resp3")}</option>
                 </Select>
-                <span className="text-[12px] text-muted">{t("conn.defaultFormatter")}</span>
+                <span className="t-13 text-muted">{t("conn.defaultFormatter")}</span>
                 <Select
                   value={
                     draft.defaultFormatter === "last_selected" ? "last_selected" : "auto"
@@ -605,7 +439,7 @@ export default function ConnectionDialog({
 
             <Section title={t("conn.appearance")}>
               <div className="flex items-center gap-3">
-                <span className="text-[12px] text-muted">{t("conn.iconColor")}</span>
+                <span className="t-13 text-muted">{t("conn.iconColor")}</span>
                 <input
                   type="color"
                   value={draft.iconColor || "#c6302b"}
@@ -625,7 +459,7 @@ export default function ConnectionDialog({
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="rounded-md border border-border bg-surface/40 p-4">
-      <h3 className="mb-3 text-[12px] font-semibold uppercase tracking-wide text-muted">
+      <h3 className="mb-3 t-13 font-semibold uppercase tracking-wide text-muted">
         {title}
       </h3>
       {children}

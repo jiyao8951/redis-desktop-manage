@@ -1,14 +1,13 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import Button from "../../components/ui/Button";
 import { Icon } from "../../components/ui/Icon";
 import { useT } from "../../lib/i18n";
 
 /**
- * Replaces the original RedisInsight migration notice with facts about this
- * rebuild only: application name, version, supported Redis version, the
- * implemented capabilities and a quick-start entry point.
+ * Original welcome page rebuilt with facts about this application only:
+ * name, version, supported Redis version, implemented capabilities and a
+ * quick-start entry point.
  */
 export default function WelcomeTab({ onAddConnection }: { onAddConnection: () => void }) {
   const t = useT();
@@ -45,21 +44,21 @@ export default function WelcomeTab({ onAddConnection }: { onAddConnection: () =>
           </div>
           <div className="min-w-0">
             <h1 className="text-[22px] font-semibold leading-tight">
-              RESP.app
+              Redis Desktop Manager
               {version ? (
-                <span className="ml-1.5 font-mono text-[12px] font-normal text-muted">
+                <span className="ml-1.5 font-mono t-13 font-normal text-muted">
                   v{version}
                 </span>
               ) : null}
             </h1>
-            <p className="text-[12px] text-muted">{t("welcome.subtitle")}</p>
+            <p className="t-13 text-muted">{t("welcome.subtitle")}</p>
           </div>
         </div>
 
-        <div className="rounded-md border border-border bg-base p-4 text-[13px] leading-[1.55] shadow-sm">
+        <div className="rounded-md border border-border bg-base p-4 t-14 leading-[1.55] shadow-sm">
           <p className="text-muted">{t("welcome.redisSupport")}</p>
 
-          <h2 className="mb-2 mt-4 text-[12px] font-semibold uppercase tracking-wide text-muted">
+          <h2 className="mb-2 mt-4 t-13 font-semibold uppercase tracking-wide text-muted">
             {t("welcome.featuresTitle")}
           </h2>
           <ul className="grid gap-x-4 gap-y-1.5 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
@@ -75,16 +74,12 @@ export default function WelcomeTab({ onAddConnection }: { onAddConnection: () =>
         </div>
 
         <div className="mt-4 rounded-md border border-border bg-base p-4 shadow-sm">
-          <h2 className="mb-1 text-[13px] font-semibold">{t("welcome.quickStart")}</h2>
-          <p className="mb-3 text-[12px] text-muted">{t("welcome.quickStartHint")}</p>
+          <h2 className="mb-1 t-14 font-semibold">{t("welcome.quickStart")}</h2>
+          <p className="mb-3 t-13 text-muted">{t("welcome.quickStartHint")}</p>
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="primary" onClick={onAddConnection}>
               <Icon name="plus" className="h-3.5 w-3.5" />
               {t("toolbar.addConnection")}
-            </Button>
-            <Button onClick={() => void openUrl("https://docs.resp.app/")}>
-              <Icon name="help" className="h-3.5 w-3.5" />
-              {t("welcome.docs")}
             </Button>
           </div>
         </div>

@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import Button from "../../components/ui/Button";
 import Menu, { type MenuItem } from "../../components/ui/Menu";
 import { Icon } from "../../components/ui/Icon";
@@ -10,6 +9,7 @@ export default function Toolbar({
   onImport,
   onExport,
   onToggleTree,
+  onOpenWelcome,
   onOpenLog,
   onOpenSettings,
 }: {
@@ -17,6 +17,7 @@ export default function Toolbar({
   onImport: () => void;
   onExport: () => void;
   onToggleTree: () => void;
+  onOpenWelcome: () => void;
   onOpenLog: () => void;
   onOpenSettings: () => void;
 }) {
@@ -33,10 +34,17 @@ export default function Toolbar({
       icon: "sidebar",
       onClick: onToggleTree,
     },
+    {
+      key: "welcome",
+      label: t("toolbar.welcome"),
+      icon: "database",
+      separatorBefore: true,
+      onClick: onOpenWelcome,
+    },
   ];
 
   return (
-    <div className="relative flex h-11 shrink-0 items-center gap-2 border-b border-border bg-win px-3">
+    <div className="relative flex h-[var(--ui-toolbar)] shrink-0 items-center gap-2 border-b border-border bg-win px-3">
       <div className="relative flex">
         <Button variant="primary" className="rounded-r-none" onClick={onAddConnection}>
           <Icon name="plus" />
@@ -57,14 +65,6 @@ export default function Toolbar({
 
       <div className="flex-1" />
 
-      <button
-        type="button"
-        className="rounded-sm p-1.5 text-muted transition-colors hover:bg-base hover:text-text"
-        title={t("toolbar.help")}
-        onClick={() => void openUrl("https://docs.resp.app/")}
-      >
-        <Icon name="help" />
-      </button>
       <button
         type="button"
         className="rounded-sm p-1.5 text-muted transition-colors hover:bg-base hover:text-text"

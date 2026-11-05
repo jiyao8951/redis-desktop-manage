@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+﻿import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
 import Dialog from "../../components/ui/Dialog";
 import Button from "../../components/ui/Button";
@@ -24,7 +24,15 @@ import { dbKeyOf, type DbView, type ServerView, type TreeRowData } from "./rowTy
 import AddKeyDialog from "../value/AddKeyDialog";
 import { BulkTtlDialog, CopyKeysDialog } from "./BulkDialogs";
 
-const ROW_HEIGHT = 30;
+const ROW_HEIGHT = 34;
+
+/** Must mirror --ui-row in globals.css so virtualization matches the CSS row. */
+function rowHeightForViewport(): number {
+  if (typeof window === "undefined") return ROW_HEIGHT;
+  if (window.matchMedia("(min-width: 2400px)").matches) return 42;
+  if (window.matchMedia("(min-width: 1600px)").matches) return 38;
+  return ROW_HEIGHT;
+}
 /** Upper bounds for the two caches that otherwise grow with every scan page. */
 const META_CACHE_LIMIT = 5000;
 const NS_CACHE_LIMIT = 200;
@@ -81,6 +89,9 @@ export default function ConnectionTree({
   onOpenConsole,
   onOpenServerActions,
   onDeleteConnection,
+  onBeforeCloseConnection,
+  onConnectionClosed,
+  externalClose,
   onConnectionsChanged,
   onGroupsChanged,
   onNotify,
@@ -98,6 +109,12 @@ export default function ConnectionTree({
   onOpenConsole: (connection: ConnectionSummary, db: number) => void;
   onOpenServerActions: (connection: ConnectionSummary, view?: ServerActionView) => void;
   onDeleteConnection: (id: string) => void;
+  /** Returns false to abort the close (e.g. unsaved tabs need confirmation). */
+  onBeforeCloseConnection?: (id: string) => boolean;
+  /** Called after the pool/subscriptions are released so the shell can drop its tabs. */
+  onConnectionClosed?: (id: string) => void;
+  /** Closing triggered from elsewhere (a tab) so the cached view must be reset too. */
+  externalClose?: { id: string; token: number } | null;
   onConnectionsChanged: () => void;
   onGroupsChanged: () => void;
   onNotify: (message: string) => void;
@@ -115,6 +132,16 @@ export default function ConnectionTree({
   const [meta, setMeta] = useState<Record<string, KeyMeta>>({});
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(400);
+  const [rowHeight, setRowHeight] = useState(rowHeightForViewport);
+  useEffect(() => {
+    const queries = [
+      window.matchMedia("(min-width: 1600px)"),
+      window.matchMedia("(min-width: 2400px)"),
+    ];
+    const update = () => setRowHeight(rowHeightForViewport());
+    queries.forEach((query) => query.addEventListener("change", update));
+    return () => queries.forEach((query) => query.removeEventListener("change", update));
+  }, []);
   const [groupDialog, setGroupDialog] = useState<{
     mode: "add" | "edit";
     group: ConnectionGroup | null;
@@ -714,8 +741,8 @@ export default function ConnectionTree({
     filterDb,
   ]);
 
-  const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - 8);
-  const visibleCount = Math.ceil(viewportHeight / ROW_HEIGHT) + 16;
+  const startIndex = Math.max(0, Math.floor(scrollTop / rowHeight) - 8);
+  const visibleCount = Math.ceil(viewportHeight / rowHeight) + 16;
   const endIndex = Math.min(rows.length, startIndex + visibleCount);
   /** Visible window plus overscan; metadata is only requested for these rows. */
   const windowRows = rows.slice(startIndex, endIndex);
@@ -856,14 +883,21 @@ export default function ConnectionTree({
    * so expanding it again reconnects with the same settings.
    */
   const closeConnection = async (connection: ConnectionSummary) => {
+    if (onBeforeCloseConnection && !onBeforeCloseConnection(connection.id)) return;
     try {
       await ipc.closeConnection(connection.id);
     } catch (e) {
       onNotify(t("common.operationFailed", { error: errMessage(e) }));
       onLog(t("tree.closeConnectionFailed", { error: errMessage(e) }), "error");
     }
+    resetClosedConnection(connection.id);
+    onConnectionClosed?.(connection.id);
+    onNotify(t("tree.closedConnection", { name: connection.name }));
+  };
 
-    const prefix = `${connection.id}:`;
+  /** Drops the in-memory view (pool/subscriptions are already released). */
+  const resetClosedConnection = (connectionId: string) => {
+    const prefix = `${connectionId}:`;
     for (const key of Object.keys(liveTimers.current)) {
       if (!key.startsWith(prefix)) continue;
       window.clearTimeout(liveTimers.current[key]);
@@ -888,14 +922,19 @@ export default function ConnectionTree({
       for (const key of matching) delete next[key];
       return next;
     });
-    updateServer(connection.id, () => emptyServerView());
+    updateServer(connectionId, () => emptyServerView());
     setSelectedId((prev) => {
       if (!prev) return prev;
-      if (prev === `server:${connection.id}` || prev.includes(`:${prefix}`)) return null;
+      if (prev === `server:${connectionId}` || prev.includes(`:${prefix}`)) return null;
       return prev;
     });
-    onNotify(t("tree.closedConnection", { name: connection.name }));
   };
+
+  useEffect(() => {
+    if (!externalClose) return;
+    resetClosedConnection(externalClose.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalClose]);
 
   const deleteKeyRow = async (row: Extract<TreeRowData, { kind: "node" }>) => {
     if (!window.confirm(t("tree.deleteKeyConfirm"))) return;
@@ -1530,7 +1569,7 @@ export default function ConnectionTree({
     }
   };
 
-  const totalHeight = rows.length * ROW_HEIGHT;
+  const totalHeight = rows.length * rowHeight;
 
   const bulkConnection = bulk
     ? connections.find((item) => item.id === bulk.connectionId)
@@ -1569,7 +1608,7 @@ export default function ConnectionTree({
             <span className="text-muted">
               <Icon name="database" />
             </span>
-            <p className="text-[12px] text-muted">{t("tree.noConnections")}</p>
+            <p className="t-13 text-muted">{t("tree.noConnections")}</p>
             <Button variant="primary" onClick={onAddConnection}>
               <Icon name="plus" />
               {t("toolbar.connect")}
@@ -1610,7 +1649,7 @@ export default function ConnectionTree({
                 <div
                   key={row.id}
                   className="absolute left-0 right-0"
-                  style={{ top: absoluteIndex * ROW_HEIGHT }}
+                  style={{ top: absoluteIndex * rowHeight }}
                 >
                   <TreeRow
                     row={row}
@@ -1749,7 +1788,7 @@ export default function ConnectionTree({
             </>
           }
         >
-          <p className="text-[12px]">
+          <p className="t-13">
             {confirmDelete.kind === "connection"
               ? t("tree.deleteConnectionConfirm", { name: confirmDelete.name })
               : t("tree.deleteGroupConfirm", { name: confirmDelete.name })}

@@ -26,12 +26,12 @@ export const en = {
   "common.operationFailed": "Operation failed: {error}",
 
   // Application shell
-  "app.title": "RESP.app",
+  "app.title": "Redis Desktop Manager",
   "app.tabWelcome": "Welcome",
   "app.resizeTree": "Resize tree pane",
   "app.loadConnectionsFailed": "Cannot load connections: {error}",
   "app.loadSettingsFailed": "Cannot load settings: {error}",
-  "app.started": "RESP.app started",
+  "app.started": "Redis Desktop Manager started",
   "app.loadConnectionFailed": "Cannot load connection settings: {error}",
   "app.connectionSaved": 'Connection "{name}" saved',
   "app.saveConnectionFailed": "Cannot save connection: {error}",
@@ -41,7 +41,7 @@ export const en = {
   "app.exportFailed": "Export failed: {error}",
   "app.settingsSaved": "Settings saved",
   "app.saveSettingsFailed": "Cannot save settings: {error}",
-  "app.importFilterName": "RESP.app connections",
+  "app.importFilterName": "Redis Desktop Manager connections",
   "app.consoleTab": "Console: {name}",
   "app.serverActionsTab": "Server Actions: {name}",
 
@@ -49,19 +49,25 @@ export const en = {
   "toolbar.addConnection": "Add Connection",
   "toolbar.log": "Log",
   "toolbar.settings": "Settings",
-  "toolbar.help": "Documentation",
   "toolbar.connect": "Connect to Redis Server",
   "toolbar.connectionMenu": "Connection menu",
   "toolbar.import": "Import Connections",
   "toolbar.export": "Export Connections",
   "toolbar.toggleTreeView": "Toggle Tree View",
+  "toolbar.welcome": "Welcome",
 
   // Tab bar
   "tabbar.closeTab": "Close {title}",
+  "tabbar.close": "Close",
+  "tabbar.closeOthers": "Close Others",
+  "tabbar.closeRight": "Close to the Right",
+  "tabbar.closeAll": "Close All",
+  "tabbar.closeConnection": "Close connection",
+  "tabbar.unsavedClose": "{count} tab(s) have unsaved changes. Close anyway?",
+  "tabbar.disconnectFailed": "Could not disconnect cleanly: {error}",
 
   // Welcome tab
-  "welcome.subtitle":
-    "A Tauri v2 + React rebuild of the open-source RESP.app (Redis Desktop Manager).",
+  "welcome.subtitle": "A Tauri v2 + React desktop client for Redis.",
   "welcome.redisSupport": "Targets Redis 8.10.x; verified against Redis 8.10.1.",
   "welcome.featuresTitle": "What this build includes",
   "welcome.feature.connections":
@@ -77,7 +83,6 @@ export const en = {
   "welcome.quickStart": "Quick start",
   "welcome.quickStartHint":
     "Add a Redis server to browse keys, run commands and inspect server state.",
-  "welcome.docs": "Documentation",
 
   // Settings dialog
   "settings.title": "Settings",
@@ -177,7 +182,7 @@ export const en = {
   // Console
   "console.title": "Console",
   "console.clear": "Clear",
-  "console.startup": "RESP.app Redis Console",
+  "console.startup": "Redis Desktop Manager Console",
   "console.connecting": "Connecting…",
   "console.connected": "Connected to {name}, db{db}.",
   "console.waiting": "Waiting for the server…",
@@ -205,9 +210,9 @@ export const en = {
 
   // Getting started + log drawer
   "quickstart.title": "Getting Started",
-  "quickstart.message": "Thank you for choosing RESP.app. Let's make your Redis experience better.",
+  "quickstart.message":
+    "Thank you for choosing Redis Desktop Manager. Let's make your Redis experience better.",
   "quickstart.connect": "Connect to Redis-Server",
-  "quickstart.docs": "Read the Docs",
   "log.title": "Log",
   "log.clear": "Clear",
   "log.close": "Close log",
@@ -291,7 +296,6 @@ export const en = {
   "filter.placeholder": "Filter pattern, e.g. *user*",
   "filter.apply": "Apply filter",
   "filter.reset": "Reset filter",
-  "filter.help": "Open filter syntax help",
   "filter.empty": "No filter history yet",
   "tree.filterSuffix": "filter: {pattern}",
 
@@ -332,29 +336,8 @@ export const en = {
   // Connection dialog
   "conn.titleNew": "New Connection Settings",
   "conn.titleEdit": "Edit Connection Settings {name}",
-  "conn.tabWizard": "How to connect",
   "conn.tabBasic": "Connection Settings",
   "conn.tabAdvanced": "Advanced Settings",
-  "conn.urlHeading": "Create connection from Redis URL",
-  "conn.import": "Import",
-  "conn.urlHelp": "Learn more about Redis URL:",
-  "conn.guides": "Connection guides",
-  "conn.guide.local": "Local or Public Redis",
-  "conn.guide.tls": "Redis with SSL/TLS",
-  "conn.guide.ssh": "SSH tunnel",
-  "conn.guide.unix": "UNIX socket",
-  "conn.guide.digitalOcean": "DigitalOcean",
-  "conn.guide.azure": "Azure",
-  "conn.guide.aws": "AWS ElastiCache",
-  "conn.guide.heroku": "Heroku Redis",
-  "conn.cannotConnect": "Cannot figure out how to connect to your redis-server?",
-  "conn.readDocs": "Read the Docs",
-  "conn.contactSupport": "Contact Support",
-  "conn.orAsk": "or ask for help in our",
-  "conn.telegram": "Telegram Group",
-  "conn.noRedis": "Don't have running Redis?",
-  "conn.redisCloud": "Use Redis Cloud: Up to 6 month free with $200 credits",
-  "conn.skip": "Skip",
   "conn.name": "Name:",
   "conn.namePlaceholder": "Connection Name",
   "conn.address": "Address:",
@@ -388,7 +371,7 @@ export const en = {
   "conn.passwordPromptPlaceholder": "Password request will be prompt prior to connection",
   "conn.sshPasswordPlaceholder": "SSH User Password",
   "conn.askPassword": "Ask for password",
-  "conn.tlsOverSsh": "Enable TLS-over-SSH (AWS ElastiCache Encryption in-transit)",
+  "conn.tlsOverSsh": "Enable TLS-over-SSH (encryption in transit)",
   "conn.keysLoading": "Keys loading",
   "conn.defaultFilter": "Default filter:",
   "conn.defaultFilterPlaceholder": "Pattern which defines loaded keys from redis-server",
@@ -418,7 +401,6 @@ export const en = {
   "conn.test": "Test Connection",
   "conn.testSuccess": "Connection successful",
   "conn.testFailed": "Connection failed",
-  "conn.quickStart": "Quick Start Guide",
   "conn.invalid": "Invalid settings detected!",
   "conn.resetSettings": "Reset settings",
   "conn.resetDone": "Form reset to defaults",

@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "RESP.app",
+  "productName": "Redis Desktop Manager",
   "version": "1.0.0",
   "identifier": "app.resp.desktop",
   "build": {
@@ -13,9 +13,9 @@
     "windows": [
       {
         "label": "main",
-        "title": "RESP.app",
-        "width": 1200,
-        "height": 800,
+        "title": "Redis Desktop Manager",
+        "width": 1440,
+        "height": 900,
         "minWidth": 1024,
         "minHeight": 700,
         "center": true,
@@ -31,11 +31,11 @@
     "active": true,
     "targets": ["nsis", "msi"],
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"],
-    "publisher": "RESP.app contributors",
-    "copyright": "Copyright (c) RESP.app contributors",
+    "publisher": "Redis Desktop Manager contributors",
+    "copyright": "Copyright (c) Redis Desktop Manager contributors",
     "category": "DeveloperTool",
     "shortDescription": "Redis GUI client",
-    "longDescription": "RESP.app - a Redis GUI client (Tauri v2 rebuild).",
+    "longDescription": "Redis Desktop Manager - a Redis GUI client (Tauri v2 rebuild).",
     "windows": {
       "nsis": {
         "installMode": "perMachine",

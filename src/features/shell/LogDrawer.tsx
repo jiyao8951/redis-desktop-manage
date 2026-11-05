@@ -1,4 +1,4 @@
-import Button from "../../components/ui/Button";
+﻿import Button from "../../components/ui/Button";
 import { Icon } from "../../components/ui/Icon";
 import { useT } from "../../lib/i18n";
 import type { LogEntry } from "../../App";
@@ -15,8 +15,8 @@ export default function LogDrawer({
   const t = useT();
   return (
     <aside className="absolute bottom-0 right-0 top-0 z-20 flex w-full max-w-[420px] flex-col border-l border-border bg-base shadow-2xl">
-      <header className="flex h-9 shrink-0 items-center justify-between border-b border-border bg-surface px-3">
-        <span className="text-[12px] font-semibold">{t("log.title")}</span>
+      <header className="flex h-[var(--ui-tabbar)] shrink-0 items-center justify-between border-b border-border bg-surface px-3">
+        <span className="t-13 font-semibold">{t("log.title")}</span>
         <div className="flex gap-1">
           <Button variant="ghost" onClick={onClear}>
             {t("log.clear")}
@@ -31,7 +31,7 @@ export default function LogDrawer({
           </button>
         </div>
       </header>
-      <div className="min-h-0 flex-1 overflow-auto p-2 font-mono text-[11px] leading-[1.45]">
+      <div className="min-h-0 flex-1 overflow-auto p-2 font-mono t-12 leading-[1.45]">
         {entries.length === 0 ? (
           <p className="p-2 text-muted">{t("log.empty")}</p>
         ) : (

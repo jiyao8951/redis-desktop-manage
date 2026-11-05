@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState, type CSSProperties } from "react";
 
 import Button from "../../components/ui/Button";
 import { Icon } from "../../components/ui/Icon";
@@ -21,6 +21,8 @@ interface ValueEditorPaneProps {
   saving?: boolean;
   fontFamily?: string;
   fontSize?: number;
+  /** Reports whether the draft differs from the loaded value (tab close guard). */
+  onDirtyChange?: (dirty: boolean) => void;
   onFormatter: (formatter: FormatterId) => void;
   onSave: (text: string) => void;
   onCopy: (text: string) => void;
@@ -43,6 +45,7 @@ export default function ValueEditorPane({
   saving = false,
   fontFamily,
   fontSize,
+  onDirtyChange,
   onFormatter,
   onSave,
   onCopy,
@@ -64,6 +67,10 @@ export default function ValueEditorPane({
   const dirty = editing && draft !== sourceText;
   const copyText = editing ? draft : (formatted?.text ?? "");
 
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+
   return (
     <div
       className={`flex flex-col border-t border-border ${
@@ -71,17 +78,17 @@ export default function ValueEditorPane({
       }`}
     >
       <div className="flex items-center gap-2 border-b border-border bg-surface/50 px-3 py-1.5">
-        <span className="min-w-0 truncate text-[11px] font-medium text-text" title={label}>
+        <span className="min-w-0 truncate t-content font-medium text-text" title={label}>
           {label}
         </span>
         {dirty ? (
-          <span className="flex shrink-0 items-center gap-1 text-[10px] text-accent">
+          <span className="flex shrink-0 items-center gap-1 t-11 text-accent">
             <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" />
             {t("value.unsaved")}
           </span>
         ) : null}
         <select
-          className="ml-auto h-7 rounded-sm border border-border bg-base px-1.5 text-[11px] text-text outline-none hover:border-muted/50 focus:border-highlight/60"
+          className="ml-auto h-[var(--ui-control)] rounded-sm border border-border bg-base px-1.5 t-12 text-text outline-none hover:border-muted/50 focus:border-highlight/60"
           value={formatter}
           onChange={(event) => onFormatter(event.target.value as FormatterId)}
         >
@@ -110,13 +117,13 @@ export default function ValueEditorPane({
         </Button>
       </div>
       <textarea
-        className={`min-h-0 flex-1 resize-none bg-base p-2 font-mono text-xs text-text outline-none focus:bg-base ${
+        className={`min-h-0 flex-1 resize-none bg-base p-2 font-mono t-editor leading-[var(--ui-editor-leading)] text-text outline-none focus:bg-base ${
           editing ? "" : "text-muted/90"
         }`}
         style={{
           fontFamily: fontFamily || undefined,
-          fontSize: fontSize ? `${fontSize}px` : undefined,
-        }}
+          "--editor-font": fontSize ? `${fontSize}px` : undefined,
+        } as CSSProperties}
         readOnly={!editing}
         spellCheck={false}
         value={editing ? draft : (formatted?.text ?? "")}
@@ -124,7 +131,7 @@ export default function ValueEditorPane({
         placeholder={cell ? "" : t("value.selectRow")}
       />
       {!editing && formatted?.truncated ? (
-        <div className="border-t border-border px-3 py-1 text-xs text-muted">
+        <div className="border-t border-border px-3 py-1 t-content text-muted">
           {t("value.displayTruncated", { limit: limit.toLocaleString() })}
         </div>
       ) : null}

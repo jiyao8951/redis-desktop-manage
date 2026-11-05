@@ -2,7 +2,7 @@
   "name": "resp-app",
   "version": "1.0.0",
   "private": true,
-  "description": "RESP.app desktop client rebuilt with Tauri v2 + React",
+  "description": "Redis Desktop Manager desktop client rebuilt with Tauri v2 + React",
   "type": "module",
   "scripts": {
     "dev": "vp dev --port 1420 --strictPort",

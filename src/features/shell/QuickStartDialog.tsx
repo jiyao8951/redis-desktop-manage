@@ -1,5 +1,4 @@
-import { openUrl } from "@tauri-apps/plugin-opener";
-import Dialog from "../../components/ui/Dialog";
+﻿import Dialog from "../../components/ui/Dialog";
 import Button from "../../components/ui/Button";
 import { Icon } from "../../components/ui/Icon";
 import { useT } from "../../lib/i18n";
@@ -18,7 +17,7 @@ export default function QuickStartDialog({
   return (
     <Dialog title={t("quickstart.title")} width={750} onClose={onClose}>
       <div className="flex min-h-[110px] flex-col items-center justify-center gap-6 py-2">
-        <p className="max-w-[520px] text-center text-[14px] leading-relaxed text-text">
+        <p className="max-w-[520px] text-center t-15 leading-relaxed text-text">
           {t("quickstart.message")}
         </p>
         <div className="flex items-center gap-3">
@@ -31,10 +30,6 @@ export default function QuickStartDialog({
           >
             <Icon name="plus" className="h-3.5 w-3.5" />
             {t("quickstart.connect")}
-          </Button>
-          <Button onClick={() => void openUrl("http://docs.resp.app/en/latest/quick-start/")}>
-            <Icon name="help" className="h-3.5 w-3.5" />
-            {t("quickstart.docs")}
           </Button>
         </div>
       </div>

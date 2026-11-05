@@ -1,4 +1,4 @@
-import Button from "../../components/ui/Button";
+﻿import Button from "../../components/ui/Button";
 import { Icon } from "../../components/ui/Icon";
 import { useT } from "../../lib/i18n";
 import type { ServerActionView, ServerFacts } from "../../lib/types";
@@ -24,7 +24,7 @@ export default function ServerOverview({
   if (error) {
     return (
       <div className="flex h-full items-center justify-center p-6">
-        <div className="flex max-w-[420px] flex-col items-center gap-2 text-center text-[13px] text-danger">
+        <div className="flex max-w-[420px] flex-col items-center gap-2 text-center t-14 text-danger">
           <Icon name="alert" className="h-5 w-5" />
           <div>{t("overview.error", { error })}</div>
         </div>
@@ -32,7 +32,7 @@ export default function ServerOverview({
     );
   }
   if (!facts) {
-    return <div className="p-6 text-[13px] text-muted">{t("overview.loading")}</div>;
+    return <div className="p-6 t-14 text-muted">{t("overview.loading")}</div>;
   }
 
   const rows: Array<[string, string]> = [
@@ -58,17 +58,17 @@ export default function ServerOverview({
     <div className="h-full overflow-auto bg-surface/20 p-6">
       <div className="mx-auto max-w-[820px] space-y-5">
         <div className="flex items-center gap-2.5">
-          <span className="flex h-9 w-9 items-center justify-center rounded-md bg-surface text-muted">
+          <span className="flex h-[var(--ui-control-lg)] w-[var(--ui-control-lg)] items-center justify-center rounded-md bg-surface text-muted">
             <Icon name="server" className="h-4 w-4" />
           </span>
           <div className="min-w-0">
-            <h2 className="truncate text-[16px] font-semibold">{t("overview.title")}</h2>
-            <div className="truncate font-mono text-[11px] text-muted">{name}</div>
+            <h2 className="truncate t-17 font-semibold">{t("overview.title")}</h2>
+            <div className="truncate font-mono t-12 text-muted">{name}</div>
           </div>
         </div>
 
         <section className="rounded-md border border-border bg-base p-4">
-          <table className="w-full border-collapse text-[12px]">
+          <table className="w-full border-collapse t-content">
             <tbody>
               {rows.map(([label, value]) => (
                 <tr key={label} className="border-b border-border last:border-b-0">
@@ -81,7 +81,7 @@ export default function ServerOverview({
         </section>
 
         <section>
-          <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted">
+          <h3 className="mb-2 t-13 font-semibold uppercase tracking-wide text-muted">
             {t("overview.quickActions")}
           </h3>
           <div className="flex flex-wrap gap-2">
@@ -94,11 +94,11 @@ export default function ServerOverview({
         </section>
 
         <section className="rounded-md border border-border bg-base p-4">
-          <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted">
+          <h3 className="mb-2 t-13 font-semibold uppercase tracking-wide text-muted">
             {t("overview.databases")}
           </h3>
           {facts.keyspace.length ? (
-            <ul className="grid grid-cols-2 gap-x-4 gap-y-1 text-[12px] sm:grid-cols-3">
+            <ul className="grid grid-cols-2 gap-x-4 gap-y-1 t-content sm:grid-cols-3">
               {facts.keyspace.map((db) => (
                 <li key={db.index} className="flex items-center justify-between gap-2">
                   <span className="font-mono">db{db.index}</span>
@@ -107,7 +107,7 @@ export default function ServerOverview({
               ))}
             </ul>
           ) : (
-            <p className="text-[12px] text-muted">{t("overview.noKeys")}</p>
+            <p className="t-content text-muted">{t("overview.noKeys")}</p>
           )}
         </section>
       </div>

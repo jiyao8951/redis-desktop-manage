@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import Button from "../../components/ui/Button";
 import Dialog from "../../components/ui/Dialog";
 import { Checkbox, Field, NumberInput, Select, TextInput } from "../../components/ui/fields";
@@ -80,8 +80,8 @@ export function BulkTtlDialog({
       }
     >
       <div className="space-y-3">
-        <p className="text-[14px] font-medium">{t("bulk.ttlTitle")}</p>
-        <div className="grid grid-cols-[170px_1fr] items-center gap-2 text-[12px]">
+        <p className="t-15 font-medium">{t("bulk.ttlTitle")}</p>
+        <div className="grid grid-cols-[170px_1fr] items-center gap-2 t-13">
           <span className="text-muted">{t("bulk.server")}</span>
           <span>{connectionName}</span>
           <span className="text-muted">{t("bulk.database")}</span>
@@ -190,8 +190,8 @@ export function CopyKeysDialog({
       }
     >
       <div className="space-y-3">
-        <p className="text-[14px] font-medium">{t("bulk.copyTitle")}</p>
-        <div className="grid grid-cols-[190px_1fr] items-center gap-2 text-[12px]">
+        <p className="t-15 font-medium">{t("bulk.copyTitle")}</p>
+        <div className="grid grid-cols-[190px_1fr] items-center gap-2 t-13">
           <span className="text-muted">{t("bulk.server")}</span>
           <span>{sourceName}</span>
           <span className="text-muted">{t("bulk.database")}</span>

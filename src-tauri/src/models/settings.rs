@@ -42,10 +42,10 @@ impl Default for Settings {
             value_size_limit: 1_500_000,
             value_editor_page_size: 100,
             app_font: String::new(),
-            app_font_size: 12,
+            app_font_size: 14,
             value_editor_font: String::new(),
-            // GlobalSettings.qml: 11 on Windows/Linux, 12 on macOS.
-            value_editor_font_size: 11,
+            // Readability default: 13px for value text, 11px was too small.
+            value_editor_font_size: 13,
             language: String::new(),
         }
     }

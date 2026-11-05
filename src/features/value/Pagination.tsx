@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 
 import Button from "../../components/ui/Button";
 import { Icon } from "../../components/ui/Icon";
@@ -45,7 +45,7 @@ export default function Pagination({
   };
 
   return (
-    <div className="flex items-center gap-2 border-t border-border bg-surface/40 px-3 py-1.5 text-[11px] text-muted">
+    <div className="flex items-center gap-2 border-t border-border bg-surface/40 px-3 py-1.5 t-12 text-muted">
       <Button variant="secondary" onClick={onPrev} disabled={prevDisabled}>
         <Icon name="chevron-left" className="h-3.5 w-3.5" />
         {t("pagination.prev")}
@@ -59,7 +59,7 @@ export default function Pagination({
         <Icon name="chevron-right" className="h-3.5 w-3.5" />
       </Button>
       <input
-        className="h-7 w-16 rounded-sm border border-border bg-base px-2 font-mono text-[11px] text-text outline-none hover:border-muted/50 focus:border-highlight/60"
+        className="h-[var(--ui-control)] w-16 rounded-sm border border-border bg-base px-2 font-mono t-12 text-text outline-none hover:border-muted/50 focus:border-highlight/60"
         value={jump}
         onChange={(event) => setJump(event.target.value)}
         onKeyDown={(event) => {
@@ -70,7 +70,7 @@ export default function Pagination({
       <Button variant="ghost" onClick={go}>
         {t("pagination.goTo")}
       </Button>
-      <span className="ml-auto font-mono">
+      <span className="ml-auto whitespace-nowrap font-mono">
         {t("pagination.loaded", { loaded })}
         {total !== null ? ` / ${total}` : ""} · {t("pagination.perPage", { size: pageSize })}
       </span>

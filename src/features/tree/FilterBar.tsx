@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { openUrl } from "@tauri-apps/plugin-opener";
+﻿import { useState } from "react";
 import { Icon } from "../../components/ui/Icon";
 import Menu from "../../components/ui/Menu";
 import type { FilterHistoryEntry } from "../../lib/types";
@@ -32,7 +31,7 @@ export default function FilterBar({
   };
 
   return (
-    <div className="relative flex h-7 w-full items-center gap-1 bg-surface pl-1 pr-2">
+    <div className="relative flex h-[var(--ui-control)] w-full items-center gap-1 bg-surface pl-1 pr-2">
       <button
         type="button"
         className="rounded-sm p-0.5 text-muted hover:text-text"
@@ -42,7 +41,7 @@ export default function FilterBar({
         <Icon name="chevron-down" />
       </button>
       <input
-        className="h-5 min-w-0 flex-1 rounded-sm border border-border bg-base px-1.5 text-[11px]"
+        className="h-5 min-w-0 flex-1 rounded-sm border border-border bg-base px-1.5 t-12"
         value={value}
         autoFocus
         placeholder={t("filter.placeholder")}
@@ -69,16 +68,8 @@ export default function FilterBar({
       >
         <Icon name="x" />
       </button>
-      <button
-        type="button"
-        className="rounded-sm p-0.5 text-muted hover:text-text"
-        title={t("filter.help")}
-        onClick={() => void openUrl("https://docs.resp.app/en/latest/keyspaces/")}
-      >
-        <Icon name="help" />
-      </button>
 
-      {busy ? <span className="text-[11px] text-muted">…</span> : null}
+      {busy ? <span className="t-12 text-muted">…</span> : null}
 
       {historyOpen ? (
         <Menu

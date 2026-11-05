@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+﻿import { useEffect, useRef, type CSSProperties } from "react";
 import { Icon, type IconName } from "./Icon";
 
 export interface MenuItem {
@@ -16,10 +16,13 @@ export default function Menu({
   items,
   onClose,
   className = "",
+  style,
 }: {
   items: MenuItem[];
   onClose: () => void;
   className?: string;
+  /** Inline positioning for menus anchored outside their parent (e.g. tab bar). */
+  style?: CSSProperties;
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -45,6 +48,7 @@ export default function Menu({
     <div
       ref={ref}
       className={`absolute z-30 max-h-[70vh] min-w-[200px] max-w-[340px] overflow-y-auto rounded-md border border-border bg-base p-1 text-text shadow-xl ${className}`}
+      style={style}
       role="menu"
       onClick={(e) => e.stopPropagation()}
     >
@@ -55,7 +59,7 @@ export default function Menu({
             type="button"
             role="menuitem"
             disabled={item.disabled}
-            className={`flex w-full items-center gap-2.5 rounded-sm px-2.5 py-[7px] text-left text-[12px] leading-4 transition-colors ${
+            className={`flex min-h-[var(--ui-control)] w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-left t-13 leading-5 transition-colors ${
               item.disabled
                 ? "cursor-default text-muted"
                 : item.danger
@@ -75,7 +79,7 @@ export default function Menu({
             )}
             <span className="flex-1 truncate">{item.label}</span>
             {item.shortcut ? (
-              <span className="ml-2 shrink-0 text-[11px] tracking-wide text-muted">
+              <span className="ml-2 shrink-0 t-12 tracking-wide text-muted">
                 {item.shortcut}
               </span>
             ) : null}

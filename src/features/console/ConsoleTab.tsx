@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+﻿import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import Button from "../../components/ui/Button";
 import Menu from "../../components/ui/Menu";
@@ -56,9 +56,10 @@ export default function ConsoleTab({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const prompt = `${connectionName}:${db}>`;
+  // Output follows the app font size, but never drops below the tier baseline.
   const textStyle = {
     fontFamily: fontFamily || undefined,
-    fontSize: fontSize ? `${fontSize}px` : undefined,
+    fontSize: fontSize ? `max(${fontSize}px, var(--fs-content))` : undefined,
   };
 
   const append = (kind: ConsoleLine["kind"], text: string) => {
@@ -175,11 +176,11 @@ export default function ConsoleTab({
   return (
     <div className="flex h-full min-h-0 flex-col bg-base">
       <div className="flex items-center gap-2 border-b border-border bg-surface/40 px-3 py-1.5">
-        <span className="text-[12px] font-semibold text-text">{t("console.title")}</span>
-        <span className="rounded-sm border border-border px-1.5 py-[1px] text-[10px] text-muted">
+        <span className="t-13 font-semibold text-text">{t("console.title")}</span>
+        <span className="rounded-sm border border-border px-1.5 py-[1px] t-11 text-muted">
           {connectionName} · db{db}
         </span>
-        {busy ? <span className="text-[11px] text-muted">{t("console.waiting")}</span> : null}
+        {busy ? <span className="t-12 text-muted">{t("console.waiting")}</span> : null}
         <div className="ml-auto">
           <Button variant="ghost" onClick={clear}>
             {t("console.clear")}
@@ -190,14 +191,14 @@ export default function ConsoleTab({
       <div
         ref={scrollRef}
         style={textStyle}
-        className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-all bg-base px-3 py-2 font-mono leading-5"
+        className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-all bg-base px-3 py-2 font-mono t-content leading-[var(--ui-editor-leading)]"
         onContextMenu={(event) => {
           event.preventDefault();
           setMenuAt({ x: event.clientX, y: event.clientY });
         }}
       >
         {lines.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-[12px] text-muted">
+          <div className="flex h-full items-center justify-center t-content text-muted">
             {t("console.placeholder")}
           </div>
         ) : null}
@@ -228,12 +229,12 @@ export default function ConsoleTab({
 
       <div
         style={textStyle}
-        className="flex items-center gap-2 border-t border-border bg-surface/40 px-3 py-2 font-mono"
+        className="flex items-center gap-2 border-t border-border bg-surface/40 px-3 py-2 font-mono t-content"
       >
         <span className="shrink-0 font-semibold text-accent">{prompt}</span>
         <input
           ref={inputRef}
-          className="h-7 min-w-0 flex-1 rounded-sm border border-border bg-base px-2 text-text outline-none placeholder:text-muted focus:border-highlight/60"
+          className="h-[var(--ui-control)] min-w-0 flex-1 rounded-sm border border-border bg-base px-2 text-text outline-none placeholder:text-muted focus:border-highlight/60"
           placeholder={busy ? t("console.waiting") : t("console.placeholder")}
           value={input}
           readOnly={busy}

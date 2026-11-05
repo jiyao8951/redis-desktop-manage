@@ -12,7 +12,7 @@ use crate::models::connection::ConnectionConfig;
 
 /// The original open-source build refuses SSH tunnels
 /// (Connection::SSHSupportException). Keep the same behaviour and message.
-pub const SSH_UNSUPPORTED_MESSAGE: &str = "The open source build of RESP.app does not support SSH tunneling. \
+pub const SSH_UNSUPPORTED_MESSAGE: &str = "The open source build of Redis Desktop Manager does not support SSH tunneling. \
      Remove the SSH host from the connection settings to connect directly.";
 
 /// Connection-manager retry policy. The redis-rs default (6 retries with a

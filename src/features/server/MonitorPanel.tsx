@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 
 import Button from "../../components/ui/Button";
@@ -134,12 +134,12 @@ export default function MonitorPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="border-b border-border bg-surface px-3 py-2 text-[12px] leading-[1.45]">
+      <div className="border-b border-border bg-surface px-3 py-2 t-13 leading-[1.45]">
         <div className="font-semibold text-danger">{t("monitor.warningTitle")}</div>
         <div className="text-muted">{t("monitor.warningBody")}</div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-1.5 text-[12px]">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-1.5 t-13">
         <Button variant="primary" disabled={running || starting} onClick={() => void start()}>
           {starting ? t("monitor.starting") : t("monitor.start")}
         </Button>
@@ -150,26 +150,26 @@ export default function MonitorPanel({
           {t("monitor.clear")}
         </Button>
         <input
-          className="h-6 w-[200px] rounded-sm border border-border bg-base px-2 text-[12px] outline-none"
+          className="h-6 w-[200px] rounded-sm border border-border bg-base px-2 t-13 outline-none"
           placeholder={t("monitor.filterPlaceholder")}
           value={filter}
           onChange={(event) => setFilter(event.target.value)}
         />
-        <span className="text-[11px] text-muted">
+        <span className="t-12 text-muted">
           {running ? t("monitor.running") : t("monitor.stopped")}
         </span>
-        <span className="ml-auto text-[11px] text-muted">
+        <span className="ml-auto t-12 text-muted">
           {t("monitor.lineCount", { count: lines.length, max: MAX_LINES })}
         </span>
       </div>
 
       {error ? (
-        <div className="border-b border-border bg-surface px-3 py-2 text-[12px] text-danger">
+        <div className="border-b border-border bg-surface px-3 py-2 t-13 text-danger">
           {error}
         </div>
       ) : null}
 
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto px-3 py-2 font-mono text-[11px]">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto px-3 py-2 font-mono t-content leading-[1.5]">
         {visible.length === 0 ? (
           <p className="text-muted">{running ? t("monitor.emptyRunning") : t("monitor.empty")}</p>
         ) : (

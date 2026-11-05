@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import Dialog from "../../components/ui/Dialog";
 import Button from "../../components/ui/Button";
@@ -33,6 +33,8 @@ interface ValueTabProps {
   onNotify: (message: string) => void;
   onLog: (message: string, level?: "info" | "error") => void;
   onRename?: (newName: string) => void;
+  /** Reports unsaved editor drafts so closing the tab can ask first. */
+  onDirtyChange?: (dirty: boolean) => void;
   onClose: () => void;
 }
 
@@ -122,7 +124,7 @@ function RowDialog({
     >
       <div className="space-y-2">
         {keyType === "hash" || keyType === "zset" ? (
-          <label className="block text-[12px]">
+          <label className="block t-13">
             <span className="mb-1 block text-muted">
               {keyType === "hash" ? t("value.fieldLabel") : t("value.memberLabel")}
             </span>
@@ -130,26 +132,26 @@ function RowDialog({
           </label>
         ) : null}
         {keyType === "zset" ? (
-          <label className="block text-[12px]">
+          <label className="block t-13">
             <span className="mb-1 block text-muted">{t("value.scoreLabel")}</span>
             <TextInput value={second} onChange={(e) => setSecond(e.target.value)} />
           </label>
         ) : null}
         {keyType === "hash" ? (
-          <label className="block text-[12px]">
+          <label className="block t-13">
             <span className="mb-1 block text-muted">{t("value.valueLabel")}</span>
             <textarea
-              className="h-28 w-full resize-none rounded-sm border border-border bg-base px-2 py-1 font-mono text-[12px] outline-none"
+              className="h-28 w-full resize-none rounded-sm border border-border bg-base px-2 py-1 font-mono t-13 outline-none"
               value={second}
               onChange={(event) => setSecond(event.target.value)}
             />
           </label>
         ) : null}
         {keyType === "list" || keyType === "set" ? (
-          <label className="block text-[12px]">
+          <label className="block t-13">
             <span className="mb-1 block text-muted">{t("value.valueLabel")}</span>
             <textarea
-              className="h-28 w-full resize-none rounded-sm border border-border bg-base px-2 py-1 font-mono text-[12px] outline-none"
+              className="h-28 w-full resize-none rounded-sm border border-border bg-base px-2 py-1 font-mono t-13 outline-none"
               value={first}
               onChange={(event) => setFirst(event.target.value)}
             />
@@ -169,9 +171,27 @@ export default function ValueTab({
   onNotify,
   onLog,
   onRename,
+  onDirtyChange,
   onClose,
 }: ValueTabProps) {
   const t = useT();
+  const dirtyRef = useRef({ string: false, cell: false });
+  const reportDirty = useCallback(
+    (slot: "string" | "cell", value: boolean) => {
+      if (dirtyRef.current[slot] === value) return;
+      dirtyRef.current[slot] = value;
+      onDirtyChange?.(dirtyRef.current.string || dirtyRef.current.cell);
+    },
+    [onDirtyChange],
+  );
+  const reportStringDirty = useCallback(
+    (value: boolean) => reportDirty("string", value),
+    [reportDirty],
+  );
+  const reportCellDirty = useCallback(
+    (value: boolean) => reportDirty("cell", value),
+    [reportDirty],
+  );
   const pageSize = Math.max(10, settings.valueEditorPageSize);
   const sizeLimit = Math.max(1, settings.valueSizeLimit);
 
@@ -773,34 +793,34 @@ export default function ValueTab({
   return (
     <section className="flex h-full min-h-0 flex-col bg-base">
       <header className="flex items-center gap-2 border-b border-border px-3 py-2">
-        <span className="shrink-0 rounded-sm border border-accent/40 bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase text-accent">
+        <span className="shrink-0 rounded-sm border border-accent/40 bg-accent/10 px-1.5 py-0.5 font-mono t-11 font-semibold uppercase text-accent">
           {meta?.keyType ?? "…"}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="truncate font-mono text-[13px] font-medium text-text" title={keyName}>
+          <div className="truncate font-mono t-title font-medium text-text" title={keyName}>
             {keyName}
           </div>
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted">
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 t-12 text-muted">
             <span>
               {connectionName} · db{db}
             </span>
             {meta ? (
-              <span className="rounded-sm border border-border px-1.5 py-[1px] font-mono text-[10px]">
+              <span className="rounded-sm border border-border px-1.5 py-[1px] font-mono t-11">
                 TTL {humanTtl(meta.ttl, t("common.noExpiry"), t("common.missing"))}
               </span>
             ) : null}
             {meta?.length !== null && meta ? (
-              <span className="rounded-sm border border-border px-1.5 py-[1px] font-mono text-[10px]">
+              <span className="rounded-sm border border-border px-1.5 py-[1px] font-mono t-11">
                 {t("value.items", { count: meta.length })}
               </span>
             ) : null}
             {meta?.encoding ? (
-              <span className="rounded-sm border border-border px-1.5 py-[1px] font-mono text-[10px]">
+              <span className="rounded-sm border border-border px-1.5 py-[1px] font-mono t-11">
                 {meta.encoding}
               </span>
             ) : null}
             {meta?.memoryBytes !== null && meta ? (
-              <span className="rounded-sm border border-border px-1.5 py-[1px] font-mono text-[10px]">
+              <span className="rounded-sm border border-border px-1.5 py-[1px] font-mono t-11">
                 {humanBytes(meta.memoryBytes)}
               </span>
             ) : null}
@@ -841,32 +861,32 @@ export default function ValueTab({
       </header>
 
       {error ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 text-sm text-danger">
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 t-14 text-danger">
           <div>{error}</div>
           <button
             type="button"
-            className="rounded border border-border px-3 py-1 text-xs text-text"
+            className="rounded border border-border px-3 py-1 t-13 text-text"
             onClick={() => void reload()}
           >
             {t("common.retry")}
           </button>
         </div>
       ) : loadingInfo && !meta ? (
-        <div className="flex flex-1 items-center justify-center text-sm text-muted">
+        <div className="flex flex-1 items-center justify-center t-14 text-muted">
           {t("common.loading")}
         </div>
       ) : !meta ? null : !meta.supported ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 text-sm">
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 t-14">
           <div className="font-mono uppercase text-muted">{meta.keyType}</div>
           <div className="text-text">{t("value.unsupported")}</div>
-          <div className="text-xs text-muted">
+          <div className="t-content text-muted">
             TTL {humanTtl(meta.ttl, t("common.noExpiry"), t("common.missing"))}
             {meta.memoryBytes !== null ? ` · ${humanBytes(meta.memoryBytes)}` : ""}
           </div>
         </div>
       ) : meta.singleRow ? (
         <>
-          <div className="flex items-center gap-3 border-b border-border px-3 py-1.5 text-xs text-muted">
+          <div className="flex items-center gap-3 border-b border-border px-3 py-1.5 t-content text-muted">
             <span>
               {t("value.bytes", {
                 loaded: loadedBytes.toLocaleString(),
@@ -901,6 +921,7 @@ export default function ValueTab({
             saving={saving}
             fontFamily={settings.valueEditorFont}
             fontSize={settings.valueEditorFontSize}
+            onDirtyChange={reportStringDirty}
             onFormatter={setFormatter}
             onSave={(text) => void saveString(text)}
             onCopy={copy}
@@ -908,7 +929,7 @@ export default function ValueTab({
         </>
       ) : (
         <>
-          <div className="flex items-center gap-3 border-b border-border px-3 py-1.5 text-xs text-muted">
+          <div className="flex items-center gap-3 border-b border-border px-3 py-1.5 t-content text-muted">
             {(meta.keyType === "list" || meta.keyType === "zset") && (
               <label className="flex items-center gap-1">
                 <input
@@ -939,7 +960,7 @@ export default function ValueTab({
             )}
             {isCursorMode ? (
               <span
-                className="ml-auto shrink-0 truncate text-[11px] text-muted"
+                className="ml-auto shrink-0 truncate t-12 text-muted"
                 title={t("value.cursorStatus", {
                   cursor,
                   state: done ? t("value.exhausted") : t("value.moreAvailable"),
@@ -989,6 +1010,7 @@ export default function ValueTab({
             saving={saving}
             fontFamily={settings.valueEditorFont}
             fontSize={settings.valueEditorFontSize}
+            onDirtyChange={reportCellDirty}
             onFormatter={setFormatter}
             onSave={(text) => void saveCell(text)}
             onCopy={copy}
@@ -1015,7 +1037,7 @@ export default function ValueTab({
             </>
           }
         >
-          <label className="block text-[12px]">
+          <label className="block t-13">
             <span className="mb-1 block text-muted">{t("value.newTtl")}</span>
             <TextInput value={ttlValue} onChange={(e) => setTtlValue(e.target.value)} />
           </label>
@@ -1038,7 +1060,7 @@ export default function ValueTab({
             </>
           }
         >
-          <label className="block text-[12px]">
+          <label className="block t-13">
             <span className="mb-1 block text-muted">{t("value.newName")}</span>
             <TextInput value={renameValue} onChange={(e) => setRenameValue(e.target.value)} />
           </label>

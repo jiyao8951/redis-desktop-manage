@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState, type MouseEvent as ReactMouseEvent } from "react";
 import type { FilterHistoryEntry, KeyMeta } from "../../lib/types";
 import { databaseLabel, humanTtl } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -38,7 +38,7 @@ function KeyBadges({ meta }: { meta?: KeyMeta }) {
     <>
       {meta.keyType && meta.keyType !== "none" ? (
         <span
-          className="rounded-sm px-1 py-[1px] text-[10px] font-semibold text-white"
+          className="rounded-sm px-1 py-[1px] t-11 font-semibold text-white"
           style={{ background: TYPE_COLORS[meta.keyType] ?? "#666" }}
           title={`TYPE ${meta.keyType}`}
         >
@@ -47,7 +47,7 @@ function KeyBadges({ meta }: { meta?: KeyMeta }) {
       ) : null}
       {meta.ttl !== -2 ? (
         <span
-          className="rounded-sm border border-border px-1 py-[1px] text-[10px] text-muted"
+          className="rounded-sm border border-border px-1 py-[1px] t-11 text-muted"
           title={`TTL ${meta.ttl}`}
         >
           {meta.ttl === -1 ? "∞" : humanTtl(meta.ttl, t("common.noExpiry"))}
@@ -97,8 +97,41 @@ export default function TreeRow({
 }) {
   const t = useT();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [dropActive, setDropActive] = useState(false);
-  const indent = 8 + row.depth * 14;
+  const indent = 8 + row.depth * 16;
+
+  const openContextMenu = (event: ReactMouseEvent) => {
+    event.preventDefault();
+    onSelect(row);
+    setMenuOpen(false);
+    setContextMenu({ x: event.clientX, y: event.clientY });
+  };
+
+  const contextMenuStyle = contextMenu
+    ? (() => {
+        const width = 240;
+        const estimated = menuItems.reduce(
+          (height, item) => height + 36 + (item.separatorBefore ? 9 : 0),
+          10,
+        );
+        const height = Math.min(estimated, Math.floor(window.innerHeight * 0.7));
+        return {
+          position: "fixed" as const,
+          left: Math.max(8, Math.min(contextMenu.x, window.innerWidth - width - 8)),
+          top: Math.max(8, Math.min(contextMenu.y, window.innerHeight - height - 8)),
+          width,
+        };
+      })()
+    : undefined;
+
+  const contextMenuNode = contextMenu ? (
+    <Menu
+      style={contextMenuStyle}
+      items={menuItems}
+      onClose={() => setContextMenu(null)}
+    />
+  ) : null;
 
   if (row.kind === "filter") {
     return (
@@ -118,8 +151,8 @@ export default function TreeRow({
   if (row.kind === "loadmore") {
     return (
       <div
-        className="tree-row flex h-row cursor-pointer items-center gap-2 pr-2 text-[12px] italic text-muted hover:bg-surface"
-        style={{ paddingLeft: indent + 14 }}
+        className="tree-row flex h-row cursor-pointer items-center gap-2 pr-2 t-content italic text-muted hover:bg-surface"
+        style={{ paddingLeft: indent + 16 }}
         onClick={() => onSelect(row)}
       >
         <Icon name="refresh" />
@@ -142,11 +175,12 @@ export default function TreeRow({
     const isNs = node.kind === "namespace";
     return (
       <div
-        className={`tree-row group relative flex h-row cursor-pointer items-center gap-1.5 pr-2 text-[12px] ${
+        className={`tree-row group relative flex h-row cursor-pointer items-center gap-1.5 pr-2 t-content ${
           selected ? "bg-highlight text-white" : "hover:bg-surface"
         }`}
         style={{ paddingLeft: indent }}
         onClick={() => onSelect(row)}
+        onContextMenu={openContextMenu}
         onDoubleClick={() => onToggle(row)}
         title={node.full}
       >
@@ -171,7 +205,7 @@ export default function TreeRow({
         </span>
         <span className="min-w-0 flex-1 truncate">{node.name}</span>
         {isNs ? (
-          <span className={`text-[11px] ${selected ? "text-white/80" : "text-muted"}`}>
+          <span className={`t-12 ${selected ? "text-white/80" : "text-muted"}`}>
             ({node.keyCount})
           </span>
         ) : null}
@@ -197,6 +231,7 @@ export default function TreeRow({
         {menuOpen ? (
           <Menu className="right-1 top-[26px]" items={menuItems} onClose={() => setMenuOpen(false)} />
         ) : null}
+        {contextMenuNode}
       </div>
     );
   }
@@ -205,11 +240,12 @@ export default function TreeRow({
     const db = row.db;
     return (
       <div
-        className={`tree-row group relative flex h-row cursor-pointer items-center gap-1.5 pr-2 text-[12px] ${
+        className={`tree-row group relative flex h-row cursor-pointer items-center gap-1.5 pr-2 t-content ${
           selected ? "bg-highlight text-white" : "hover:bg-surface"
         }`}
         style={{ paddingLeft: indent }}
         onClick={() => onSelect(row)}
+        onContextMenu={openContextMenu}
         onDoubleClick={() => onToggle(row)}
       >
         <button
@@ -250,6 +286,7 @@ export default function TreeRow({
         {menuOpen ? (
           <Menu className="right-1 top-[26px]" items={menuItems} onClose={() => setMenuOpen(false)} />
         ) : null}
+        {contextMenuNode}
       </div>
     );
   }
@@ -258,11 +295,12 @@ export default function TreeRow({
     const view = row.view;
     return (
       <div
-        className={`tree-row group relative flex h-row cursor-pointer items-center gap-1.5 pr-2 text-[12px] font-semibold ${
+        className={`tree-row group relative flex h-row cursor-pointer items-center gap-1.5 pr-2 t-content font-semibold ${
           selected ? "bg-highlight text-white" : "hover:bg-surface"
         }`}
         style={{ paddingLeft: indent }}
         onClick={() => onSelect(row)}
+        onContextMenu={openContextMenu}
         onDoubleClick={() => onToggle(row)}
         draggable={dragEnabled}
         onDragStart={(event) => {
@@ -287,7 +325,7 @@ export default function TreeRow({
         </span>
         <span className="min-w-0 flex-1 truncate">{row.connection.name}</span>
         <span
-          className={`shrink-0 truncate text-[10.5px] font-normal ${
+          className={`shrink-0 truncate t-12 font-normal ${
             selected ? "text-white/75" : "text-muted"
           }`}
           style={{ maxWidth: "45%" }}
@@ -295,7 +333,7 @@ export default function TreeRow({
           {row.connection.host}:{row.connection.port}
         </span>
         {view.error ? (
-          <span className="text-[10px] font-normal text-danger">{t("tree.errorBadge")}</span>
+          <span className="t-11 font-normal text-danger">{t("tree.errorBadge")}</span>
         ) : null}
         {menuItems.length ? (
           <button
@@ -317,6 +355,7 @@ export default function TreeRow({
         {menuOpen ? (
           <Menu className="right-1 top-[26px]" items={menuItems} onClose={() => setMenuOpen(false)} />
         ) : null}
+        {contextMenuNode}
       </div>
     );
   }
@@ -324,7 +363,7 @@ export default function TreeRow({
   // group
   return (
     <div
-      className={`tree-row group relative flex h-row cursor-pointer items-center gap-1.5 pr-2 text-[12px] ${
+      className={`tree-row group relative flex h-row cursor-pointer items-center gap-1.5 pr-2 t-content ${
         dropActive
           ? "bg-highlight/40 ring-1 ring-inset ring-accent"
           : selected

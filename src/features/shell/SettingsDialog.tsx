@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import Dialog from "../../components/ui/Dialog";
 import Button from "../../components/ui/Button";
 import { Checkbox, Field, NumberInput, Select } from "../../components/ui/fields";
@@ -59,7 +59,7 @@ export default function SettingsDialog({
     >
       <div className="space-y-4">
         <section className="space-y-3 rounded-md border border-border bg-surface/40 p-4">
-          <h3 className="text-[12px] font-semibold uppercase tracking-wide text-muted">
+          <h3 className="t-13 font-semibold uppercase tracking-wide text-muted">
             {t("settings.appearance")}
           </h3>
           <Field label={t("settings.language")}>
@@ -81,7 +81,7 @@ export default function SettingsDialog({
           <div className="grid grid-cols-2 gap-3">
             <Field label={t("settings.appFont")} hint={t("settings.appFontHint")}>
               <input
-                className="h-7 w-full rounded-sm border border-border bg-base px-2 text-[12px] outline-none"
+                className="h-[var(--ui-control)] w-full rounded-sm border border-border bg-base px-2 t-13 outline-none"
                 value={draft.appFont}
                 placeholder={t("settings.systemDefault")}
                 onChange={(e) => set("appFont", e.target.value)}
@@ -99,7 +99,7 @@ export default function SettingsDialog({
         </section>
 
         <section className="space-y-3 rounded-md border border-border bg-surface/40 p-4">
-          <h3 className="text-[12px] font-semibold uppercase tracking-wide text-muted">
+          <h3 className="t-13 font-semibold uppercase tracking-wide text-muted">
             {t("settings.treeSection")}
           </h3>
           <div className="flex flex-col gap-2">
@@ -160,7 +160,7 @@ export default function SettingsDialog({
         </section>
 
         <section className="space-y-3 rounded-md border border-border bg-surface/40 p-4">
-          <h3 className="text-[12px] font-semibold uppercase tracking-wide text-muted">
+          <h3 className="t-13 font-semibold uppercase tracking-wide text-muted">
             {t("settings.valueSection")}
           </h3>
           <div className="grid grid-cols-2 gap-3">
@@ -180,7 +180,7 @@ export default function SettingsDialog({
             </Field>
             <Field label={t("settings.valueFont")}>
               <input
-                className="h-7 w-full rounded-sm border border-border bg-base px-2 text-[12px] outline-none"
+                className="h-[var(--ui-control)] w-full rounded-sm border border-border bg-base px-2 t-13 outline-none"
                 value={draft.valueEditorFont}
                 placeholder={t("settings.valueFontPlaceholder")}
                 onChange={(e) => set("valueEditorFont", e.target.value)}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useRef, useState } from "react";
 
 import Button from "../../components/ui/Button";
 import { Checkbox } from "../../components/ui/fields";
@@ -76,13 +76,13 @@ function DataTable({ columns, rows }: { columns: string[]; rows: string[][] }) {
   return (
     <div className="min-h-0 flex-1 overflow-auto">
       {rows.length === 0 ? (
-        <div className="p-3 text-[12px] text-muted">{t("server.noData")}</div>
+        <div className="p-3 t-content text-muted">{t("server.noData")}</div>
       ) : (
-        <table className="w-full border-collapse text-[12px]">
+        <table className="w-full border-collapse t-content">
           <thead className="sticky top-0 bg-surface text-muted">
             <tr>
               {columns.map((column) => (
-                <th key={column} className="border-b border-border px-2 py-1 text-left font-normal">
+                <th key={column} className="border-b border-border px-2 py-1.5 text-left font-normal">
                   {column}
                 </th>
               ))}
@@ -92,7 +92,7 @@ function DataTable({ columns, rows }: { columns: string[]; rows: string[][] }) {
             {rows.map((row, rowIndex) => (
               <tr key={rowIndex} className="hover:bg-surface">
                 {row.map((cell, cellIndex) => (
-                  <td key={cellIndex} className="border-b border-border px-2 py-0.5 align-top">
+                  <td key={cellIndex} className="border-b border-border px-2 py-1 align-top">
                     {cell}
                   </td>
                 ))}
@@ -241,7 +241,7 @@ export default function ServerActionsTab({
   return (
     <div className="flex h-full min-h-0 flex-col bg-base">
       <div className="flex flex-wrap items-center gap-1 border-b border-border bg-surface/40 px-3 py-1.5">
-        <span className="mr-1 text-[12px] font-semibold text-text">{t("server.title")}</span>
+        <span className="mr-1 t-13 font-semibold text-text">{t("server.title")}</span>
         <div className="flex flex-wrap items-center gap-0.5 rounded-sm border border-border bg-surface p-0.5">
           {VIEWS.map((item) => (
             <Button
@@ -258,7 +258,7 @@ export default function ServerActionsTab({
           <Checkbox
             checked={autoRefresh}
             onChange={setAutoRefresh}
-            label={<span className="text-[11px] text-muted">{t("server.autoRefresh")}</span>}
+            label={<span className="t-12 text-muted">{t("server.autoRefresh")}</span>}
           />
           <Button variant="secondary" disabled={loading} onClick={() => void load()}>
             {t("server.refresh")}
@@ -266,14 +266,14 @@ export default function ServerActionsTab({
         </div>
       </div>
 
-      <div className="flex items-center gap-2 border-b border-border px-3 py-1 text-[11px] text-muted">
+      <div className="flex items-center gap-2 border-b border-border px-3 py-1 t-12 text-muted">
         <span className="font-mono">{connectionName}</span>
         {loading ? <span>{t("server.loading")}</span> : null}
         {view === "config" ? <span>{t("server.configHint")}</span> : null}
       </div>
 
       {error ? (
-        <div className="border-b border-border bg-danger/5 px-3 py-2 text-[12px] text-danger">
+        <div className="border-b border-border bg-danger/5 px-3 py-2 t-13 text-danger">
           {error}
         </div>
       ) : null}
@@ -312,7 +312,7 @@ export default function ServerActionsTab({
               rows={activeSection.fields.map((field) => [field.name, field.value])}
             />
           ) : (
-            <div className="p-3 text-[12px] text-muted">{t("server.infoNoSections")}</div>
+            <div className="p-3 t-13 text-muted">{t("server.infoNoSections")}</div>
           )}
         </div>
       ) : null}
@@ -360,8 +360,8 @@ export default function ServerActionsTab({
 
       {view === "memory" ? (
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className="border-b border-border px-3 py-2 text-[12px] text-text">
-            <div className="text-[11px] text-muted">{t("server.memoryDoctor")}</div>
+          <div className="border-b border-border px-3 py-2 t-content text-text">
+            <div className="t-12 text-muted">{t("server.memoryDoctor")}</div>
             <div className="mt-1 whitespace-pre-wrap">
               {memory?.doctor?.trim() || t("server.memoryNoVerdict")}
             </div>

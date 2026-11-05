@@ -1,8 +1,8 @@
-# RESP.app (Tauri v2 rebuild)
+# Redis Desktop Manager (Tauri v2 rebuild)
 
-A Tauri v2 + React rebuild of RESP.app (Redis Desktop Manager). The original
-QML/C++ sources under `../src` are the functional and visual reference; nothing
-outside `new/` is modified.
+A Tauri v2 + React desktop client for Redis, rebuilt from the original open-source
+Redis Desktop Manager (QML/C++) sources. The original sources under `../src` are
+the functional and visual reference; nothing outside `new/` is modified.
 
 Implemented: application shell, connection management (SQLite CRUD, groups,
 import/export, duplicate), connection tree with namespaces and lazy SCAN,
@@ -44,7 +44,7 @@ with that name.
 | Preview built frontend  | `bun run preview`                                                    | **not verified** — `vp preview`; frontend only, `invoke` calls fail                                |
 | Build installers        | `bun run tauri:build`                                                | **not verified** — `tauri build` with NSIS + MSI from `tauri.conf.json`                            |
 | Build via script        | `powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1` | **not verified** — version check + `bun install` + bundles; add `-Bundles nsis` for NSIS only      |
-| Package portable exe    | `bun run package:portable`                                           | release exe only (no NSIS/MSI); rewrites `dist-release/RESP.app_<version>_portable_x64.exe`       |
+| Package portable exe    | `bun run package:portable`                                           | release exe only (no NSIS/MSI); rewrites `dist-release/RedisDesktopManager_<version>_portable_x64.exe` |
 | Lint, format, types     | `bun x vp check`                                                     | verified, exit 0 (39 files; formatting, lint rules and type-aware check)                           |
 | Lint without formatting | `bun x vp check --no-fmt`                                            | verified, exit 0                                                                                   |
 | Frontend tests          | `bun x vp test`                                                      | exit 1 — no `*.test.*` / `*.spec.*` files exist; the Rust tests below are the only automated tests |
@@ -69,8 +69,8 @@ cargo fetch --manifest-path src-tauri\Cargo.toml
 Artifacts (version comes from `src-tauri/tauri.conf.json`):
 
 - portable exe: `new/src-tauri/target/release/resp-app.exe`
-- NSIS setup: `new/src-tauri/target/release/bundle/nsis/RESP.app_1.0.0_x64-setup.exe`
-- MSI: `new/src-tauri/target/release/bundle/msi/RESP.app_1.0.0_x64_en-US.msi`
+- NSIS setup: `new/src-tauri/target/release/bundle/nsis/Redis Desktop Manager_1.0.0_x64-setup.exe`
+- MSI: `new/src-tauri/target/release/bundle/msi/Redis Desktop Manager_1.0.0_x64_en-US.msi`
 
 The script checks that `package.json`, `Cargo.toml` and `tauri.conf.json`
 versions match before building.

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import Toolbar from "./features/shell/Toolbar";
 import TabBar from "./features/shell/TabBar";
@@ -50,7 +50,7 @@ const WELCOME_TAB: AppTab = {
   id: "welcome",
   kind: "welcome",
   title: "",
-  closable: false,
+  closable: true,
 };
 
 const SIDEBAR_MIN = 220;
@@ -71,11 +71,16 @@ export default function App() {
   const [treeVisible, setTreeVisible] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(320);
   const [revision, setRevision] = useState(0);
+  /** Signals ConnectionTree to drop the cached view of an already-closed connection. */
+  const [externalClose, setExternalClose] = useState<{ id: string; token: number } | null>(null);
 
   const toastTimer = useRef<number | null>(null);
   const logId = useRef(0);
   const consoleSeq = useRef(0);
   const dragging = useRef(false);
+  const closeToken = useRef(0);
+  /** Tab ids whose active editor holds unsaved changes. */
+  const dirtyTabs = useRef<Set<string>>(new Set());
 
   // App renders inside the provider, so it calls the pure translator directly.
   const language: Language = resolveLanguage(settings.language);
@@ -141,10 +146,13 @@ export default function App() {
 
   useEffect(() => {
     // GlobalSettings.qml appFont/appFontSize: apply live instead of on restart.
+    // The size only drives the text base (--app-font); layout uses the
+    // responsive tier variables so a user font change never shrinks spacing.
     document.documentElement.style.fontFamily = settings.appFont || "";
-    document.documentElement.style.fontSize = settings.appFontSize
-      ? `${settings.appFontSize}px`
-      : "";
+    document.documentElement.style.setProperty(
+      "--app-font",
+      settings.appFontSize ? `${settings.appFontSize}px` : "",
+    );
   }, [settings.appFont, settings.appFontSize]);
 
   useEffect(() => {
@@ -233,12 +241,84 @@ export default function App() {
     })();
   };
 
+  const markTabDirty = (id: string, dirty: boolean) => {
+    if (dirty) dirtyTabs.current.add(id);
+    else dirtyTabs.current.delete(id);
+  };
+
+  const confirmCloseTabs = (ids: string[]) => {
+    const dirty = ids.filter((id) => dirtyTabs.current.has(id));
+    if (!dirty.length) return true;
+    return window.confirm(t("tabbar.unsavedClose", { count: dirty.length }));
+  };
+
+  /** Removes tabs without asking; falls back to a fresh welcome tab when the bar is empty. */
+  const applyCloseTabs = (ids: string[]) => {
+    if (!ids.length) return;
+    const doomed = new Set(ids);
+    doomed.forEach((id) => dirtyTabs.current.delete(id));
+    const index = tabs.findIndex((tab) => doomed.has(tab.id));
+    const remaining = tabs.filter((tab) => !doomed.has(tab.id));
+    setTabs(remaining.length ? remaining : [WELCOME_TAB]);
+    if (doomed.has(activeTabId)) {
+      setActiveTabId(
+        remaining.length ? remaining[Math.min(index, remaining.length - 1)].id : WELCOME_TAB.id,
+      );
+    }
+  };
+
+  const closeTabs = (ids: string[]) => {
+    if (!confirmCloseTabs(ids)) return false;
+    applyCloseTabs(ids);
+    return true;
+  };
+
   const closeTab = (id: string) => {
-    setTabs((prev) => {
-      const next = prev.filter((tab) => tab.id !== id);
-      if (id === activeTabId) setActiveTabId(WELCOME_TAB.id);
-      return next.some((tab) => tab.id === WELCOME_TAB.id) ? next : [WELCOME_TAB, ...next];
-    });
+    closeTabs([id]);
+  };
+
+  const closeOtherTabs = (id: string) => {
+    closeTabs(tabs.filter((tab) => tab.id !== id).map((tab) => tab.id));
+  };
+
+  const closeTabsToRight = (id: string) => {
+    const index = tabs.findIndex((tab) => tab.id === id);
+    if (index < 0) return;
+    closeTabs(tabs.slice(index + 1).map((tab) => tab.id));
+  };
+
+  const closeAllTabs = () => {
+    closeTabs(tabs.map((tab) => tab.id));
+  };
+
+  /** Opens the welcome tab, or focuses the existing one (never duplicates it). */
+  const openWelcomeTab = () => {
+    setTabs((prev) => (prev.some((tab) => tab.kind === "welcome") ? prev : [WELCOME_TAB, ...prev]));
+    setActiveTabId(WELCOME_TAB.id);
+  };
+
+  const connectionTabIds = (connectionId: string) =>
+    tabs.filter((tab) => tab.connectionId === connectionId).map((tab) => tab.id);
+
+  /** Closes every tab of a connection, then releases its Redis pool and tree state. */
+  const closeAndDisconnect = (tabId: string) => {
+    const tab = tabs.find((item) => item.id === tabId);
+    if (!tab?.connectionId) return;
+    const connectionId = tab.connectionId;
+    const ids = connectionTabIds(connectionId);
+    if (!confirmCloseTabs(ids)) return;
+    const name = connections.find((item) => item.id === connectionId)?.name ?? connectionId;
+    void (async () => {
+      try {
+        await ipc.closeConnection(connectionId);
+      } catch (e) {
+        log(t("tabbar.disconnectFailed", { error: errMessage(e) }), "error");
+      }
+      applyCloseTabs(ids);
+      closeToken.current += 1;
+      setExternalClose({ id: connectionId, token: closeToken.current });
+      notify(t("tree.closedConnection", { name }));
+    })();
   };
 
   const openKeyTab = (connectionId: string, db: number, keyName: string) => {
@@ -308,6 +388,10 @@ export default function App() {
   const handleKeyRenamed = (tab: AppTab, newName: string) => {
     if (tab.connectionId === undefined || tab.db === undefined) return;
     const nextId = `key:${tab.connectionId}:${tab.db}:${newName}`;
+    if (dirtyTabs.current.has(tab.id)) {
+      dirtyTabs.current.delete(tab.id);
+      dirtyTabs.current.add(nextId);
+    }
     setTabs((prev) => {
       // Renaming to an existing key means both tabs point at the same key.
       // Keep a single tab for it instead of duplicating the id.
@@ -322,11 +406,7 @@ export default function App() {
   };
 
   const handleConnectionDeleted = (id: string) => {
-    setTabs((prev) => {
-      const next = prev.filter((tab) => tab.connectionId !== id);
-      if (!next.some((tab) => tab.id === activeTabId)) setActiveTabId(WELCOME_TAB.id);
-      return next;
-    });
+    applyCloseTabs(connectionTabIds(id));
   };
 
   const importConnections = async () => {
@@ -383,10 +463,20 @@ export default function App() {
           onImport={() => void importConnections()}
           onExport={() => void exportConnections()}
           onToggleTree={() => setTreeVisible((v) => !v)}
+          onOpenWelcome={openWelcomeTab}
           onOpenLog={() => setLogOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
         />
-        <TabBar tabs={tabs} activeId={activeTabId} onActivate={setActiveTabId} onClose={closeTab} />
+        <TabBar
+          tabs={tabs}
+          activeId={activeTabId}
+          onActivate={setActiveTabId}
+          onClose={closeTab}
+          onCloseOthers={closeOtherTabs}
+          onCloseRight={closeTabsToRight}
+          onCloseAll={closeAllTabs}
+          onDisconnect={closeAndDisconnect}
+        />
 
         <div className="relative flex min-h-0 flex-1">
           {treeVisible ? (
@@ -407,6 +497,9 @@ export default function App() {
                   onOpenConsole={openConsoleTab}
                   onOpenServerActions={openServerActionsTab}
                   onDeleteConnection={handleConnectionDeleted}
+                  onBeforeCloseConnection={(id) => confirmCloseTabs(connectionTabIds(id))}
+                  onConnectionClosed={(id) => applyCloseTabs(connectionTabIds(id))}
+                  externalClose={externalClose}
                   onConnectionsChanged={() => {
                     setRevision((v) => v + 1);
                     void loadLists();
@@ -475,6 +568,7 @@ export default function App() {
                 onNotify={notify}
                 onLog={log}
                 onRename={(newName) => handleKeyRenamed(activeTab, newName)}
+                onDirtyChange={(dirty) => markTabDirty(activeTab.id, dirty)}
                 onClose={() => closeTab(activeTab.id)}
               />
             ) : serverConnection && activeTab.kind === "server" ? (
@@ -498,7 +592,7 @@ export default function App() {
 
         {toast ? (
           <div
-            className="pointer-events-none fixed bottom-4 left-1/2 z-50 max-w-[min(600px,80vw)] -translate-x-1/2 rounded-md border border-border bg-base px-3.5 py-2.5 text-[12px] leading-5 text-text shadow-2xl"
+            className="pointer-events-none fixed bottom-4 left-1/2 z-50 max-w-[min(600px,80vw)] -translate-x-1/2 rounded-md border border-border bg-base px-3.5 py-2.5 t-13 leading-5 text-text shadow-2xl"
             role="status"
             aria-live="polite"
           >

@@ -47,8 +47,8 @@ export const DEFAULT_SETTINGS: Settings = {
   valueSizeLimit: 1500000,
   valueEditorPageSize: 100,
   appFont: "",
-  appFontSize: 12,
+  appFontSize: 14,
   valueEditorFont: "",
-  valueEditorFontSize: 11,
+  valueEditorFontSize: 13,
   language: "",
 };

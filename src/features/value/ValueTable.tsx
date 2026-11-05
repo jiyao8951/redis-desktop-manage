@@ -1,4 +1,4 @@
-import { memo } from "react";
+﻿import { memo } from "react";
 
 import { Icon } from "../../components/ui/Icon";
 import { localizedColumn, useT } from "../../lib/i18n";
@@ -63,31 +63,31 @@ function ValueTable({
             className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted"
           />
           <input
-            className="h-7 w-64 rounded-sm border border-border bg-base pl-7 pr-2 text-[12px] text-text outline-none placeholder:text-muted hover:border-muted/50 focus:border-highlight/60"
+            className="h-[var(--ui-control)] w-72 rounded-sm border border-border bg-base pl-7 pr-2 t-13 text-text outline-none placeholder:text-muted hover:border-muted/50 focus:border-highlight/60"
             placeholder={t("table.filterRows")}
             value={filter}
             onChange={(event) => onFilter(event.target.value)}
           />
         </div>
-        <span className="text-[11px] text-muted">{t("table.rowsOnPage", { count: rows.length })}</span>
+        <span className="t-12 text-muted">{t("table.rowsOnPage", { count: rows.length })}</span>
         {loading ? (
-          <span className="ml-auto flex items-center gap-1.5 text-[11px] text-muted">
+          <span className="ml-auto flex items-center gap-1.5 t-12 text-muted">
             <span className="spinner inline-block h-3 w-3 rounded-full border border-muted border-t-transparent" />
             {t("common.loading")}
           </span>
         ) : null}
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
-        <table className="w-full table-fixed border-collapse text-xs">
+        <table className="w-full table-fixed border-collapse t-content">
           <thead className="sticky top-0 bg-surface text-muted">
             <tr>
-              <th className="w-14 border-b border-border px-2 py-1 text-right font-normal">
+              <th className="w-16 border-b border-border px-2 py-1.5 text-right font-normal">
                 {t("value.column.number")}
               </th>
               {dataColumns.map((column) => (
                 <th
                   key={column}
-                  className="border-b border-l border-border px-2 py-1 text-left font-normal"
+                  className="border-b border-l border-border px-2 py-1.5 text-left font-normal"
                 >
                   {localizedColumn(t, column)}
                 </th>
@@ -103,7 +103,7 @@ function ValueTable({
                   className={isSelected ? "bg-highlight/10" : "hover:bg-surface"}
                 >
                   <td
-                    className={`border-b border-border px-2 py-0.5 text-right font-mono text-[11px] ${
+                    className={`border-b border-border px-2 py-1.5 text-right font-mono t-12 ${
                       isSelected ? "text-highlight" : "text-muted"
                     }`}
                   >
@@ -115,7 +115,7 @@ function ValueTable({
                       <td
                         key={index}
                         title={titleOf(cell)}
-                        className={`cursor-pointer truncate border-b border-l border-border px-2 py-0.5 font-mono ${
+                        className={`cursor-pointer truncate border-b border-l border-border px-2 py-1.5 font-mono ${
                           cellSelected
                             ? "bg-highlight text-white ring-1 ring-inset ring-highlight"
                             : isSelected

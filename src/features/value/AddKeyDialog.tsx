@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 
 import Button from "../../components/ui/Button";
 import Dialog from "../../components/ui/Dialog";
@@ -122,15 +122,15 @@ export default function AddKeyDialog({
     >
       <div className="space-y-3">
         {confirmOverwrite ? (
-          <div className="rounded-md border border-danger/50 bg-danger/5 p-3 text-[12px] text-text">
+          <div className="rounded-md border border-danger/50 bg-danger/5 p-3 t-13 text-text">
             {t("addKey.existsWarning", { name: name.trim() })}
           </div>
         ) : null}
-        <label className="block text-[12px]">
+        <label className="block t-13">
           <span className="mb-1 block text-muted">{t("addKey.name")}</span>
           <TextInput value={name} onChange={(event) => setName(event.target.value)} autoFocus />
         </label>
-        <label className="block text-[12px]">
+        <label className="block t-13">
           <span className="mb-1 block text-muted">{t("addKey.type")}</span>
           <Select
             value={keyType}
@@ -144,36 +144,36 @@ export default function AddKeyDialog({
           </Select>
         </label>
         {keyType === "hash" ? (
-          <label className="block text-[12px]">
+          <label className="block t-13">
             <span className="mb-1 block text-muted">{t("addKey.field")}</span>
             <TextInput value={field} onChange={(event) => setField(event.target.value)} />
           </label>
         ) : null}
         {keyType === "zset" ? (
-          <label className="block text-[12px]">
+          <label className="block t-13">
             <span className="mb-1 block text-muted">{t("addKey.score")}</span>
             <TextInput value={score} onChange={(event) => setScore(event.target.value)} />
           </label>
         ) : null}
         {keyType === "list" || keyType === "set" ? (
-          <label className="block text-[12px]">
+          <label className="block t-13">
             <span className="mb-1 block text-muted">{t("addKey.members")}</span>
             <textarea
-              className="h-24 w-full resize-none rounded-sm border border-border bg-base px-2 py-1 font-mono text-[12px] text-text outline-none hover:border-muted/50 focus:border-highlight/60"
+              className="h-24 w-full resize-none rounded-sm border border-border bg-base px-2 py-1 font-mono t-13 text-text outline-none hover:border-muted/50 focus:border-highlight/60"
               value={members}
               onChange={(event) => setMembers(event.target.value)}
             />
           </label>
         ) : keyType === "stream" ? (
           <>
-            <label className="block text-[12px]">
+            <label className="block t-13">
               <span className="mb-1 block text-muted">{t("addKey.entryId")}</span>
               <TextInput value={streamId} onChange={(event) => setStreamId(event.target.value)} />
             </label>
-            <label className="block text-[12px]">
+            <label className="block t-13">
               <span className="mb-1 block text-muted">{t("addKey.entry")}</span>
               <textarea
-                className="h-24 w-full resize-none rounded-sm border border-border bg-base px-2 py-1 font-mono text-[12px] text-text outline-none hover:border-muted/50 focus:border-highlight/60"
+                className="h-24 w-full resize-none rounded-sm border border-border bg-base px-2 py-1 font-mono t-13 text-text outline-none hover:border-muted/50 focus:border-highlight/60"
                 placeholder='{"field":"value"}'
                 value={value}
                 onChange={(event) => setValue(event.target.value)}
@@ -181,10 +181,10 @@ export default function AddKeyDialog({
             </label>
           </>
         ) : (
-          <label className="block text-[12px]">
+          <label className="block t-13">
             <span className="mb-1 block text-muted">{t("common.value")}</span>
             <textarea
-              className="h-24 w-full resize-none rounded-sm border border-border bg-base px-2 py-1 font-mono text-[12px] text-text outline-none hover:border-muted/50 focus:border-highlight/60"
+              className="h-24 w-full resize-none rounded-sm border border-border bg-base px-2 py-1 font-mono t-13 text-text outline-none hover:border-muted/50 focus:border-highlight/60"
               value={value}
               onChange={(event) => setValue(event.target.value)}
             />

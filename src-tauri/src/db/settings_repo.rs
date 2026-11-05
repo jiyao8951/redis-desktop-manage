@@ -9,7 +9,7 @@ const VERSION_KEY: &str = "settings_schema_version";
 
 /// Bumped whenever a persisted default changes. The migration below is keyed
 /// by this value, so it runs at most once per database and is idempotent.
-pub const SETTINGS_SCHEMA_VERSION: u64 = 3;
+pub const SETTINGS_SCHEMA_VERSION: u64 = 4;
 
 pub fn load(conn: &Connection) -> AppResult<Settings> {
     let raw: Option<String> = conn
@@ -71,6 +71,21 @@ pub fn apply_settings_migration(value: &mut Value, from_version: u64) -> bool {
         // so an explicit user choice is preserved.
         if value.get("scanPageSize").and_then(Value::as_u64) == Some(100) {
             value["scanPageSize"] = Value::from(500u64);
+            changed = true;
+        }
+    }
+
+    if from_version < 4 {
+        // Readability upgrade raised the application font default from 12 to 14
+        // and the value editor font from 11 to 13. Profiles that persist the
+        // old defaults would otherwise never see the change, so rewrite only
+        // those exact historical values.
+        if value.get("appFontSize").and_then(Value::as_u64) == Some(12) {
+            value["appFontSize"] = Value::from(14u64);
+            changed = true;
+        }
+        if value.get("valueEditorFontSize").and_then(Value::as_u64) == Some(11) {
+            value["valueEditorFontSize"] = Value::from(13u64);
             changed = true;
         }
     }
@@ -228,5 +243,46 @@ mod tests {
         insert_settings(&conn, "not json");
         assert!(migrate(&mut conn).is_err());
         assert_eq!(stored_version(&conn).unwrap(), 1);
+    }
+
+    #[test]
+    fn old_default_font_sizes_are_migrated_once() {
+        let mut conn = memory_db();
+        insert_settings(&conn, r#"{"appFontSize":12,"valueEditorFontSize":11}"#);
+
+        assert!(migrate(&mut conn).unwrap());
+        let migrated: Value = serde_json::from_str(&read_settings(&conn)).unwrap();
+        assert_eq!(migrated["appFontSize"], 14);
+        assert_eq!(migrated["valueEditorFontSize"], 13);
+        assert_eq!(stored_version(&conn).unwrap(), SETTINGS_SCHEMA_VERSION);
+
+        // Second startup: the version is current, so nothing changes again.
+        assert!(!migrate(&mut conn).unwrap());
+        let migrated: Value = serde_json::from_str(&read_settings(&conn)).unwrap();
+        assert_eq!(migrated["appFontSize"], 14);
+        assert_eq!(migrated["valueEditorFontSize"], 13);
+    }
+
+    #[test]
+    fn explicit_font_sizes_are_preserved() {
+        let mut conn = memory_db();
+        insert_settings(&conn, r#"{"appFontSize":18,"valueEditorFontSize":16}"#);
+
+        assert!(!migrate(&mut conn).unwrap());
+        let settings: Value = serde_json::from_str(&read_settings(&conn)).unwrap();
+        assert_eq!(settings["appFontSize"], 18);
+        assert_eq!(settings["valueEditorFontSize"], 16);
+        assert_eq!(stored_version(&conn).unwrap(), SETTINGS_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn only_the_old_default_font_size_is_rewritten() {
+        let mut conn = memory_db();
+        insert_settings(&conn, r#"{"appFontSize":12,"valueEditorFontSize":16}"#);
+
+        assert!(migrate(&mut conn).unwrap());
+        let settings: Value = serde_json::from_str(&read_settings(&conn)).unwrap();
+        assert_eq!(settings["appFontSize"], 14);
+        assert_eq!(settings["valueEditorFontSize"], 16);
     }
 }

@@ -1,8 +1,8 @@
 [package]
 name = "resp-app"
 version = "1.0.0"
-description = "RESP.app desktop client rebuilt with Tauri v2"
-authors = ["RESP.app contributors"]
+description = "Redis Desktop Manager desktop client rebuilt with Tauri v2"
+authors = ["Redis Desktop Manager contributors"]
 edition = "2021"
 rust-version = "1.77"
 

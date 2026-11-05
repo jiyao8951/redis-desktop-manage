@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 
 import { useT } from "../../lib/i18n";
 
@@ -103,10 +103,10 @@ export default function StatsChart({ title, unit, kind, points, initialMax = 0 }
   return (
     <div ref={ref} className="rounded-sm border border-border bg-surface p-2">
       <div className="mb-1 flex items-baseline gap-2">
-        <span className="truncate text-[12px] text-text" title={title}>
+        <span className="truncate t-content text-text" title={title}>
           {title}
         </span>
-        <span className="ml-auto shrink-0 text-[11px] text-muted">
+        <span className="ml-auto shrink-0 t-12 text-muted">
           {latest === undefined ? "—" : `${Math.round(latest * 100) / 100} ${unit}`}
         </span>
       </div>
