@@ -19,7 +19,7 @@ export default defineConfig({
     },
   },
   build: {
-    target: "chrome105",
+    target: "chrome120",
     // Vite 8 minifies with Oxc; the old esbuild minifier now requires a
     // separately installed esbuild package.
     minify: "oxc",

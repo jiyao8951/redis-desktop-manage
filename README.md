@@ -1,79 +1,191 @@
-# Redis Desktop Manager (Tauri v2 rebuild)
+# Redis Desktop Manager
 
-A Tauri v2 + React desktop client for Redis, rebuilt from the original open-source
-Redis Desktop Manager (QML/C++) sources. The original sources under `../src` are
-the functional and visual reference; nothing outside `new/` is modified.
+基于 **Tauri v2（Rust）+ React** 的 Windows Redis 图形客户端，以单文件绿色版分发。
 
-Implemented: application shell, connection management (SQLite CRUD, groups,
-import/export, duplicate), connection tree with namespaces and lazy SCAN,
-value viewer/editor, console, server actions (stats charts, INFO, slow log,
-clients, memory), live update, settings, delete/regroup/add-key flows and the
-write commands listed below.
+连接、分组和设置保存在本机 SQLite；键浏览、值编辑、命令控制台和服务器诊断都在同一个窗口内完成，界面提供简体中文与英文。
 
-> **Verification status:** `cargo check --tests`,
-> `bun x tsc --noEmit` (same as `bun run check:types`), `bun run build` and
-> `bun x vp check` pass. `bun x vp test` reports no test files. The application
-> has not been launched, no screenshots were taken and no installer was
-> produced in this workspace. See [Not verified yet](#not-verified-yet) —
-> treat that list as required manual acceptance work.
+## Overview (English)
 
-## Requirements
+Redis Desktop Manager is a Redis GUI for Windows x64, built with Tauri v2 (Rust) and React 19. It ships as a single portable executable and covers connection management, a namespace-aware key tree, viewing/editing of the six core Redis types, a command console, server diagnostics (INFO / MONITOR / SLOWLOG / CLIENT LIST / STATS / CONFIG GET / MEMORY), keyspace-notification Live Update, and an English/Simplified Chinese UI.
 
-- Node.js 20.19+ (the Vite+ 1.4.0 toolchain requires `^20.19` / `^22.18` / `>=24.11`)
-- Bun (all install and run commands use `bun`; `bun.lock` is the only lockfile)
-- Rust stable with the `x86_64-pc-windows-msvc` target
-- WebView2 runtime (Windows 10/11 usually ships it)
-- Tauri bundling prerequisites (NSIS/WiX are downloaded by the Tauri CLI on
-  the first bundle run)
-
-## Commands
-
-Run every command from `new/`. The frontend toolchain is **Vite+ 1.4.0
-(`vp`)**, which bundles Vite 8.3.5, Rolldown, Oxlint/Oxfmt and Vitest; the
-`dev`, `build` and `preview` scripts call `vp`, so Vite 8 is not downgraded.
-`bun run <script>` and `vp run <script>` both execute the `package.json` script
-with that name.
-
-| Goal                    | Command (run in `new/`)                                              | Status / notes                                                                                     |
-| ----------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| First-time install      | `bun install`                                                        | not re-run in this round; `bun.lock` is the only lockfile (no `package-lock.json` is kept)         |
-| Desktop dev             | `bun run tauri:dev`                                                  | **not verified** — launches the Tauri window                                                       |
-| Frontend dev only       | `bun run dev`                                                        | **partly verified** — `vp dev --port 1420 --strictPort`; see the note below                        |
-| Type check              | `bun run check:types`                                                | verified, exit 0 (`tsc --noEmit`)                                                                  |
-| Production frontend     | `bun run build`                                                      | verified, exit 0 (`tsc --noEmit && vp build`; output in `new/dist/`)                               |
-| Preview built frontend  | `bun run preview`                                                    | **not verified** — `vp preview`; frontend only, `invoke` calls fail                                |
-| Build portable exe      | `bun run tauri:build`                                                | the only packaging command: `tauri build --no-bundle`, then refreshes `dist-release/RedisDesktopManager_<version>_portable_x64.exe` |
-| Lint, format, types     | `bun x vp check`                                                     | verified, exit 0 (39 files; formatting, lint rules and type-aware check)                           |
-| Lint without formatting | `bun x vp check --no-fmt`                                            | verified, exit 0                                                                                   |
-| Frontend tests          | `bun x vp test`                                                      | exit 1 — no `*.test.*` / `*.spec.*` files exist; the Rust tests below are the only automated tests |
-| Rust checks             | `cargo check --tests --manifest-path src-tauri\Cargo.toml`           | verified, exit 0                                                                                   |
-| Legacy alias            | `bun run tauri -- <args>`                                            | kept for compatibility; prefer `tauri:dev` / `tauri:build`                                         |
-
-`vite.config.ts` already uses Vite+'s `defineConfig` and `lazyPlugins`, and
-`vp build` accepts the existing `server.port` / `server.strictPort` and
-`build.minify: "oxc"` settings, so no configuration change was needed.
-
-Note on the frontend dev server: port 1420 was already occupied on this
-machine, so `bun run dev` exited with `Port 1420 is already in use` (which
-confirms `strictPort` works) and a cold start of `vp dev` is still unverified.
-
-Warm Rust dependencies before the first build (optional; not verified in this
-round):
+Common commands, run from the repository root:
 
 ```powershell
-cargo fetch --manifest-path src-tauri\Cargo.toml
+bun install          # install frontend dependencies
+bun run tauri:dev    # launch the desktop app (dev)
+bun run check:types  # TypeScript type check
+bun run tauri:build  # build the single portable exe
 ```
 
-Artifacts (version comes from `src-tauri/tauri.conf.json`):
+The packaging command is Windows-only. Chinese sections below contain the full details.
 
-- portable exe: `new/src-tauri/target/release/resp-app.exe`
-- NSIS setup: `new/src-tauri/target/release/bundle/nsis/Redis Desktop Manager_1.0.0_x64-setup.exe`
-- MSI: `new/src-tauri/target/release/bundle/msi/Redis Desktop Manager_1.0.0_x64_en-US.msi`
+## 功能特性
 
-The script checks that `package.json`, `Cargo.toml` and `tauri.conf.json`
-versions match before building.
+### 连接管理
 
-Optional read-only smoke test against a real server (never sends writes):
+- 连接的新建、编辑、删除、复制，以及连接测试。
+- 连接分组；导入/导出 JSON 连接文件。
+- 支持普通 TCP 与 `rediss://` TLS；可选择忽略证书错误。
+- 每个连接可选 RESP2 或 RESP3；RESP3 握手不被服务端支持时回退到 RESP2，并在测试连接时给出提示。
+- SSH 隧道的字段可以保存，但当前版本不支持建立 SSH 隧道。
+- 自定义 CA / 客户端证书路径可以保存，但 TLS 层目前不会加载它们。
+
+### 连接树与键浏览
+
+- 数据库列表来自 `INFO keyspace`，空库按配置的数据库数量补齐。
+- namespace 分组树，按需 `SCAN` 加载，支持键过滤与过滤历史。
+- 键、namespace、数据库级别的右键菜单，覆盖打开、添加键、删除、批量 TTL、按 pattern 删除、复制键、`FLUSHDB`、Live Update、Console、内存分析等操作。
+- 关闭连接会同步关闭相关标签页并释放连接资源。
+
+### 键值查看与编辑
+
+- 支持 `string`、`hash`、`set`、`zset`、`list`、`stream`。
+- 多行类型按 `valueEditorPageSize` 分页；字符串按块加载，超过 `valueSizeLimit` 时显示截断提示并可继续加载。
+- `hash` / `set` / `zset` / `list` 支持行级新增、修改、删除；`string` 支持整体编辑；`stream` 支持浏览，并可通过 Add Key 以 `XADD` 新增条目。
+- TTL 设置与 `PERSIST`；键重命名与删除。
+- 内置 formatter：`auto`、`text`、`json`、`hex`、`hex-table`、`base64-text`。
+- 不认识的 `TYPE` 以只读方式显示，避免对未知结构做错误写入。
+
+### 命令控制台
+
+- 每条命令单独执行，支持 `↑` / `↓` 浏览历史、`clear` 清空输出、右键清空菜单。
+- 显示执行耗时和当前数据库，可在连接内切换 DB。
+
+### 服务器视图
+
+- **INFO**：按 section 展示服务器信息。
+- **MONITOR**：独立连接实时输出，前端有行数上限与关键字过滤。
+- **SLOWLOG / CLIENT LIST / STATS**：慢日志、客户端列表与采样图表。
+- **CONFIG GET**：只读白名单配置项。
+- **MEMORY**：内存统计与 `MEMORY DOCTOR`。
+- **Console**：在服务器操作页内复用命令控制台。
+
+### Live Update
+
+- 基于 Redis keyspace 通知；每个 `(connection, db)` 使用**独立** pub/sub 连接（`PSUBSCRIBE __keyspace@{db}__:*`），不占用共享连接池。
+- 事件在短时间窗口内合并，前端按 `liveUpdateInterval` 秒做一次刷新。
+- 键数量超过 `liveUpdateKeysLimit` 时自动停用并提示。
+- 服务端需开启 keyspace 通知，例如 `notify-keyspace-events "KEA"`（由管理员在服务端配置，客户端不会发送该命令）。
+
+### 标签页与界面
+
+- 欢迎页按普通标签处理；关闭全部标签后自动新建欢迎页；顶部“连接”菜单可打开或聚焦欢迎页。
+- 标签右键菜单：关闭、关闭其他、关闭右侧、关闭全部；绑定连接的标签可“关闭标签并断开连接”。
+- 深色模式：自动跟随系统 / 强制开启 / 强制关闭。
+- 中英双语：默认跟随系统语言，可在设置中切换。
+- 字号与多分辨率适配：应用字号、值编辑器字号可调；布局在 1600px、2400px 断点进入更大档位。
+- 无系统托盘：关闭主窗口即退出，并释放连接池、Live 订阅与 Monitor 任务。
+
+## 技术栈
+
+| 层 | 技术 | 职责 |
+| --- | --- | --- |
+| 前端 | React 19、TypeScript、Tailwind CSS 4 | 界面、标签页、连接树、值编辑器、服务器视图 |
+| 构建 | Vite+ 1.4.0（Vite / Rolldown / Oxlint / Oxfmt） | 开发服务器、构建、格式化、lint 与类型感知检查 |
+| 桌面壳 | Tauri v2（CLI 2.12.4） | 窗口、IPC、文件对话框、应用退出 |
+| 后端 | Rust、Tokio | 命令实现、连接池、SCAN、值读写、Live Update、Monitor |
+| Redis | `redis` 0.27（`tokio-comp`、`connection-manager`、TLS） | RESP2/RESP3、连接复用与超时控制 |
+| 存储 | `rusqlite` 0.32（bundled SQLite） | 连接、分组、过滤历史、应用设置 |
+
+## 环境要求
+
+| 依赖 | 要求 |
+| --- | --- |
+| 操作系统 | Windows 10/11 x64 |
+| WebView2 | Microsoft Edge WebView2 Runtime（Windows 10/11 通常自带，精简系统需单独安装） |
+| Node.js | Vite+ 1.4.0 要求 `^22.18.0 \|\| ^24.11.0 \|\| >=26.0.0` |
+| Bun | 用于安装依赖和运行脚本；仓库只保留 `bun.lock` |
+| Rust | stable 工具链，`x86_64-pc-windows-msvc` 目标；`Cargo.toml` 声明 `rust-version = "1.77"` |
+
+打包脚本会主动检查 `node`、`bun`、`cargo` 是否可用。
+
+## 快速开始
+
+在仓库根目录执行：
+
+```powershell
+bun install
+bun run tauri:dev
+```
+
+`tauri:dev` 会先启动前端开发服务器（端口 1420），再启动桌面窗口。首次运行需要下载并编译 Rust 依赖，耗时会明显长于后续启动。
+
+只调试前端：
+
+```powershell
+bun run dev
+```
+
+该命令固定使用 1420 端口并启用 `strictPort`，端口被占用时会直接失败。`bun run preview` 只预览已构建的前端，Tauri `invoke` 相关功能不可用。
+
+## 打包与产物
+
+唯一的打包入口：
+
+```powershell
+bun run tauri:build
+```
+
+该脚本（`scripts/package-portable.ps1`）会：
+
+1. 检查 `node`、`bun`、`cargo` 是否存在，以及 `node_modules` 是否已安装。
+2. 校验 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` 三处版本号一致。
+3. 设置 `CARGO_INCREMENTAL=0`，执行 `tauri build --no-bundle`（内部先跑 `bun run build`）。
+4. 把 `src-tauri/target/release/resp-app.exe` 复制为唯一产物，并清理旧文件和残留的 `bundle/` 目录。
+
+产物路径（版本号来自 `src-tauri/tauri.conf.json`，当前为 `1.0.0`）：
+
+```text
+dist-release\RedisDesktopManager_1.0.0_portable_x64.exe
+```
+
+这是一个单文件绿色版，**不生成 NSIS/MSI 安装包**。`dist-release/` 与 `*.exe` 已被 `.gitignore` 忽略，不会进入版本库。
+
+## 目录结构
+
+```text
+.
+├─ src/                         React 前端
+│  ├─ features/
+│  │  ├─ connections/           连接编辑对话框
+│  │  ├─ tree/                  连接树、过滤、批量操作
+│  │  ├─ value/                 值查看/编辑、formatter、Add Key
+│  │  ├─ console/               命令控制台
+│  │  ├─ server/                服务器视图、MONITOR、STATS
+│  │  └─ shell/                 工具栏、标签栏、设置、欢迎页、日志
+│  ├─ lib/                      IPC 封装、类型、默认值、i18n
+│  ├─ components/ui/            Button、Dialog、Menu、字段等基础组件
+│  └─ styles/globals.css        主题变量、字号档位、响应式断点
+├─ src-tauri/                   Rust 后端
+│  ├─ src/commands/             Tauri command 入口
+│  ├─ src/db/                   迁移与 SQLite 仓储
+│  ├─ src/models/               IPC 数据结构
+│  ├─ src/redis/                连接池、SCAN、值读写、Live Update、Monitor
+│  ├─ src/lib.rs                应用装配、窗口关闭与退出清理
+│  ├─ tauri.conf.json           窗口、产品名、标识符
+│  └─ Cargo.toml                Rust 依赖与 crate 名
+├─ scripts/
+│  ├─ package-portable.ps1       唯一打包脚本
+│  └─ lib-versions.ps1           版本一致性检查
+├─ dist-release/                 打包产物（gitignored）
+├─ package.json
+├─ vite.config.ts
+└─ AGENTS.md                     Vite+ 工具链约定
+```
+
+## 验证与质量
+
+在仓库根目录执行，以下结果为本仓库当前实测：
+
+| 命令 | 作用 | 实测结果 |
+| --- | --- | --- |
+| `bun run check:types` | `tsc --noEmit` 类型检查 | 通过 |
+| `bun run build` | 类型检查 + `vp build` | 通过；59 modules，产物在 `dist/` |
+| `bun x vp check --no-fmt` | Oxlint + 类型感知检查（不格式化） | 通过；43 files，无 warning/lint/type 错误 |
+| `cargo test --manifest-path src-tauri\Cargo.toml` | Rust 单元测试 | 51 passed，0 failed，1 ignored |
+| `cargo check --tests --manifest-path src-tauri\Cargo.toml` | Rust 编译检查 | 可用于快速检查测试代码编译 |
+
+被忽略的测试是只读冒烟测试 `read_only_smoke`，需要真实服务器环境才运行：
 
 ```powershell
 $env:RESP_TEST_HOST = "<host>"
@@ -82,196 +194,67 @@ $env:RESP_TEST_PASSWORD = "<password>"
 cargo test --manifest-path src-tauri\Cargo.toml read_only_smoke -- --ignored --nocapture
 ```
 
-To check Live Update readiness, also run this read-only command with your
-password:
+前端目前没有 `*.test.*` / `*.spec.*` 文件，自动化测试集中在 Rust 侧。
+
+## 数据与配置
+
+应用启动时通过 Tauri 的 `app_data_dir()` 创建数据目录，数据库文件为：
+
+```text
+%APPDATA%\app.resp.desktop\resp.sqlite3
+```
+
+本机实测该路径存在（标识符 `app.resp.desktop` 来自 `src-tauri/tauri.conf.json`）。
+
+SQLite 表：
+
+- `connections`：连接配置，包括主机、端口、认证、TLS、SSH 字段、超时、协议等。
+- `connection_groups`：连接分组。
+- `filter_history`：每个连接的键过滤历史。
+- `app_settings`：应用设置，按 JSON 存储。
+
+设置迁移按 `settings_schema_version` 只执行一次，仅在存储值仍等于旧默认值时改写；迁移失败只记录日志，不阻塞启动。
+
+注意：
+
+- 连接用户名、密码等凭据保存在本地 SQLite 中，**明文存储**，未使用 Windows DPAPI 加密。
+- 应用不读取 `.env` / `.env.*`；这些文件只被 `.gitignore` 忽略。
+- 卸载或删除应用前如需保留配置，请备份上述 `resp.sqlite3`。
+
+## 常见问题
+
+**Q：`bun run dev` 报端口 1420 被占用。**
+
+`dev` 脚本使用 `--port 1420 --strictPort`，Tauri 的 `devUrl` 也固定为 `http://localhost:1420`。先关闭占用该端口的进程；如确实需要换端口，必须同步修改 `vite.config.ts` 的 `server.port`、`src-tauri/tauri.conf.json` 的 `build.devUrl` 与 `build.beforeDevCommand`。
+
+**Q：启动后窗口空白或提示缺少 WebView2。**
+
+安装 Microsoft Edge WebView2 Evergreen Runtime 后重试。Windows 10/11 正常版本通常已自带。
+
+**Q：Rust 编译出现 `no entry found for key` 之类的 ICE。**
+
+已知本地 `target/release/incremental` 缓存损坏会触发 rustc ICE。打包脚本已默认设置 `CARGO_INCREMENTAL=0`；手动运行 cargo 时可执行：
 
 ```powershell
-redis-cli -h <host> -a <password> CONFIG GET notify-keyspace-events
+$env:CARGO_INCREMENTAL = "0"
 ```
 
-## Write capability matrix
+**Q：打包提示 `node_modules is missing`。**
 
-The UI and backend follow the original QML/C++ implementation. `update` means
-editing an existing row/value, `add` a new row, `delete` removing a row (not
-the whole key). Every destructive UI action asks for confirmation with the
-original wording.
+先执行 `bun install`，再运行 `bun run tauri:build`。
 
-| Type   | Update                                                                                                 | Add                                                  | Delete row                                                          |
-| ------ | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------- | ------------------------------------------------------------------- |
-| string | `SET key value`                                                                                        | `SET key value` (Add Key)                            | `DEL key` (Delete Key)                                              |
-| hash   | field renamed: `HDEL key field` + `HSET key newField value`; value only: `HSET key field value`        | `HSETNX key field value`                             | `HDEL key field`                                                    |
-| set    | `SREM key member` + `SADD key newMember`                                                               | `SADD key member`                                    | `SREM key member`                                                   |
-| zset   | member renamed: `ZREM key member` + `ZADD key score newMember`; score only: `ZADD key XX score member` | `ZADD key score member`                              | `ZREM key member`                                                   |
-| list   | `LSET key position value`                                                                              | `LPUSH key value` (original ListKeyModel uses LPUSH) | `LSET key position <unique-token>` then `LREM key 0 <unique-token>` |
-| stream | not supported (original rejects it)                                                                    | `XADD key id field value ...` (`*` = auto id)        | `XDEL key id`                                                       |
+**Q：为什么没有安装包？**
 
-Other write paths:
+这是刻意设计：`tauri:build` 使用 `--no-bundle`，只保留单文件绿色版，并确保 `dist-release/` 中恰好有一个 exe。
 
-| Action                              | Command(s)                                                            |
-| ----------------------------------- | --------------------------------------------------------------------- |
-| Add Key (hash/zset/list/set/stream) | `HSETNX` / `ZADD` / `LPUSH` / `SADD` / `XADD`                         |
-| Add Key overwrite (confirmed)       | `DEL` then the type-specific add                                      |
-| Delete Key                          | `DEL key`                                                             |
-| Delete Keys with Filter             | `SCAN MATCH <pattern>` + `DEL` in batches of 500                      |
-| Flush Database                      | `FLUSHDB`                                                             |
-| Set TTL                             | `EXPIRE key seconds`                                                  |
-| Bulk TTL (pattern)                  | `SCAN MATCH <pattern>` + `EXPIRE` per key                             |
-| Persist TTL                         | `PERSIST key`                                                         |
-| Rename Key                          | `DUMP key` + `RESTORE newKey <ttl> <payload>` + `DEL key`             |
-| Copy Keys to another db             | source `DUMP key` + target `RESTORE key <ttl ms> <payload> [REPLACE]` |
-| Regroup / move connection           | local SQLite `UPDATE connections SET group_id`                        |
+## 已知限制
 
-Write path unit tests live in `src-tauri/src/redis/write.rs` and assert the
-exact argument order without contacting a server:
-`cargo test --manifest-path src-tauri\Cargo.toml write::tests`.
-
-The list row delete uses a random marker (`__resp_deleted_<uuid>__`) so an
-existing element with the same value can never be removed by `LREM`.
-
-## Live Update preconditions
-
-Live Update opens a **dedicated** pub/sub connection per `(connection, db)`
-(`PSUBSCRIBE __keyspace@{db}__:*`); it never reuses the shared connection pool.
-The backend turns messages into a Tauri `live-update` event and the tree does at
-most one reload per `liveUpdateInterval` seconds.
-
-Keyspace notifications must be enabled on the Redis server:
-
-```
-notify-keyspace-events "KEA"
-```
-
-`K` enables keyspace channels, `E` enables keyevent channels, `A` is the alias
-for all event classes (`g$lshzxe`). For this feature `K` plus at least one
-class is required: `KEA` covers every command, while `Kg` only reports generic
-events (`del`, `expire`, `rename`, …) and misses `set`/`hset`/`sadd`/`zadd`
-changes. Apply it in `redis.conf` or with
-`CONFIG SET notify-keyspace-events KEA` (an administrator action; this client
-never sends `CONFIG SET`).
-
-When notifications are off (empty value):
-
-- `PSUBSCRIBE` still succeeds and the UI can show Live Update as enabled;
-- no keyspace messages arrive, so the tree simply does not auto-refresh;
-- nothing crashes, and toggling Live Update off still closes the dedicated
-  connection.
-
-Read-only probe result for the shared development test database: the
-TCP port is reachable, but the server answered `NOAUTH Authentication required`
-to `CONFIG GET notify-keyspace-events` because no credentials were available in
-this workspace. The effective value is therefore **unverified**; run
-`CONFIG GET notify-keyspace-events` with the password before testing Live
-Update.
-
-## Persistence and credentials
-
-`rusqlite` (bundled SQLite) is used so schema migrations, settings and
-connections stay in Rust; the database handle never runs on the UI thread.
-File: `%APPDATA%\app.resp.desktop\resp.sqlite3`. Tables: `connections`,
-`connection_groups`, `filter_history`, `app_settings`.
-
-- Credentials are entered by the user and stored in the local SQLite file,
-  plaintext at rest (same model as the original `connections.json`). Windows
-  DPAPI protection is still a hardening task.
-- `.env` / `.env.*` are gitignored. The application does not read them.
-- Settings are stored as JSON under the `app_settings` key. A startup migration
-  keyed by `settings_schema_version` rewrites historical defaults (for example
-  `liveUpdateKeysLimit: 10000` → `1000`) exactly once, only when the persisted
-  value still equals the old default. A migration failure is logged and does
-  not block startup.
-
-## Redis client behaviour
-
-- `redis` crate 0.27 with `tokio-comp`, `connection-manager`,
-  `tokio-rustls-comp`, `tls-rustls-insecure`.
-- One `ConnectionManager` per `(connection id, db)`. The db is part of the URL
-  path, so no `SELECT` is issued on the shared multiplexed connection.
-- `rediss://` for TLS; `#insecure` when "ignore SSL errors" is on. Custom CA /
-  client certificate files are persisted but **not applied** (see gaps).
-- SSH tunnel settings are persisted and rejected with the original OSS
-  "not supported" message.
-- RESP: `resp2` by default; `?protocol=resp3` when selected, with fallback to
-  RESP2 reported as a warning by "Test Connection".
-- `executeTimeout` and `connectionTimeout` wrap each command and connection
-  creation, clamped to 500 ms..600 s.
-- Database list comes from `INFO keyspace`, padding empty databases up to the
-  configured `databases` value, matching `TreeOperations::loadDatabases()`.
-- SCAN uses `COUNT <scanPageSize>`; the cursor crosses IPC as a decimal string.
-- TYPE/TTL are batched with `Semaphore(8)` + `JoinSet`; failed lookups yield
-  `type=unknown, ttl=-2` so the UI does not re-queue forever.
-- Namespace grouping follows `keysrendering.cpp`, including the
-  `showNamespacesOnTop`, `reopenNamespacesOnReload` and
-  `namespacedKeysShortName` settings.
-- Value loading respects `valueSizeLimit`; table pages respect
-  `valueEditorPageSize`; defaults and clamps mirror `GlobalSettings.qml`.
-
-## Remaining original features: feasibility
-
-| Feature                            | Original support                                                                                                               | Current state                                                                                                   | Cost / decision                                                                                                                                                                       |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Copy Keys                          | Yes: `BulkOperations` CopyOperation, `DUMP`/`RESTORE` with REPLACE and TTL                                                     | Implemented: destination connection + db index, pattern, TTL, replace checkbox                                  | Low; done                                                                                                                                                                             |
-| Bulk TTL                           | Yes: `TtlOperation`, pipelined `EXPIRE` over a key pattern                                                                     | Implemented: pattern + seconds, confirmation                                                                    | Low; done                                                                                                                                                                             |
-| Import RDB                         | Yes: `RdbImport` shells out to Python `rdb` (rdbtools) and converts keys to Redis commands                                     | Not implemented                                                                                                 | High: requires a Python runtime plus `rdbtools`, or a native RDB parser; no such dependency exists in the Rust tree. Deliberately no stub menu item                                   |
-| Formatter coverage                 | Built-ins Plain Text, HEX, HEX TABLE, JSON, BASE64→Text plus embedded Python formatters and an external formatter server       | Built-ins are implemented (auto/text/json/hex/hex-table/base64-text); default formatter is wired per connection | Python formatters are high cost (embed Python). Remaining gap is only third-party formatter plugins                                                                                   |
-| Language switching                 | `.ts` translations (`rdm_<locale>.ts`), `app/locale` setting, restart required                                                 | English only                                                                                                    | High: every UI string must be externalised and translated; no fake selector is shown                                                                                                  |
-| Proxy                              | Only Qt network proxy (`app/useSystemProxy`, `disableProxyForRedisConnections`); Redis connections deliberately bypass proxies | Not applicable                                                                                                  | Low value for Redis: proxy never applied to Redis connections in the original either. No UI added                                                                                     |
-| TLS custom CA / client certificate | Connection dialog stores CA/client cert paths and loads them into `QSslConfiguration`; `ignoreSSLErrors`                       | Persisted; `#insecure` applied; custom CA/cert not applied                                                      | High with redis-rs 0.27: `Client::open` builds its own rustls config and exposes no hook for a custom `ClientConfig`. Would require a dedicated TLS connector or another client crate |
-| Cluster connection                 | Yes: cluster mode detection, redirects, `overrideClusterHost`, db 0 only                                                       | Standalone only                                                                                                 | High: `redis` cluster client uses a different model (no per-db `ConnectionManager`, no `SELECT`), and SCAN/namespace/statistics would need node-level handling                        |
-
-## Not verified yet
-
-These require a real Redis server and manual acceptance; no write command was
-sent during development.
-
-1. Every row in the write matrix against a disposable database: string, hash,
-   set, zset, list, stream update/add/delete.
-2. List delete on a list that already contains the marker-like value (must
-   remove only the target index).
-3. `RESTORE` TTL units for rename and copy (milliseconds), and `BUSYKEY`
-   behaviour without REPLACE.
-4. Add Key overwrite across different types (confirmed `DEL` before add).
-5. Single-key delete, delete-by-filter, `FLUSHDB`, bulk TTL, copy keys.
-6. TTL/persist dialogs and rename round-trip (TTL and binary payload).
-7. Live Update end-to-end, including `notify-keyspace-events` = `KEA`, event
-   payload shape, subscription teardown on tab/tree close and connection
-   delete, and the `liveUpdateKeysLimit` auto-disable notice.
-8. Regroup drag-and-drop persistence across restart, and "Remove from Group".
-9. Settings effects: `scanPageSize`, namespace separator, `valueSizeLimit`,
-   `valueEditorPageSize`, fonts, live-update interval/limit.
-10. Startup settings migration on an existing SQLite file
-    (`liveUpdateKeysLimit` 10000 → 1000) and idempotency on the next launch.
-11. Packaging: `bun run tauri:build` → `scripts/package-portable.ps1` (`tauri
-    build --no-bundle`, exactly one portable exe in `dist-release/`), and the
-    window minimum size 1024×700.
-12. Statistics charts over a longer session (sample retention, axis rounding).
-
-## Directory map
-
-```
-new/
-├─ scripts/package-portable.ps1
-├─ src/
-│  ├─ lib/            types.ts, ipc.ts, defaults.ts, format.ts
-│  ├─ components/ui/  Button, fields, Dialog, Menu, Icon
-│  └─ features/
-│     ├─ shell/       Toolbar, TabBar, WelcomeTab, SettingsDialog, LogDrawer
-│     ├─ connections/ ConnectionDialog (tabs, URL import, test)
-│     ├─ tree/        ConnectionTree, TreeRow, BulkDialogs, treeModel
-│     ├─ value/       ValueTab, ValueEditorPane, AddKeyDialog
-│     ├─ console/     ConsoleTab
-│     └─ server/      ServerActionsTab, StatsChart
-└─ src-tauri/
-   ├─ tauri.conf.json  icons/
-   └─ src/
-      ├─ models/   connection.rs, tree.rs, settings.rs
-      ├─ db/       migrations.rs, connections_repo.rs, groups_repo.rs, settings_repo.rs
-      ├─ redis/    manager.rs, scan.rs, meta.rs, value.rs, write.rs, live.rs
-      └─ commands/ connections.rs, tree.rs, settings.rs, value.rs, server.rs, console.rs
-```
-
-## Redis 8 notes
-
-The target server reported `redis_version 8.10.1` during read-only probing,
-standalone mode, 16 configured databases, module `vectorset`. New Redis 8 types
-are displayed by their `TYPE` string; no additional commands are invented
-beyond what the original client issued.
+- 发布产物仅面向 Windows x64；运行依赖系统 WebView2。
+- 不提供 NSIS/MSI 安装包，只产出绿色版 exe。
+- 单窗口应用，无系统托盘；关闭主窗口即退出。
+- 不支持 Redis Cluster 集群连接，只连接单个 Redis 节点。
+- SSH 隧道暂不支持；相关配置只做保存。
+- TLS 只应用 `rediss://` 与“忽略证书错误”，不加载自定义 CA / 客户端证书。
+- 凭据在本地 SQLite 中明文存储。
+- 不提供 RDB 文件导入。
+- 前端暂无自动化测试。
