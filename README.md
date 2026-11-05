@@ -42,9 +42,7 @@ with that name.
 | Type check              | `bun run check:types`                                                | verified, exit 0 (`tsc --noEmit`)                                                                  |
 | Production frontend     | `bun run build`                                                      | verified, exit 0 (`tsc --noEmit && vp build`; output in `new/dist/`)                               |
 | Preview built frontend  | `bun run preview`                                                    | **not verified** — `vp preview`; frontend only, `invoke` calls fail                                |
-| Build installers        | `bun run tauri:build`                                                | **not verified** — `tauri build` with NSIS + MSI from `tauri.conf.json`                            |
-| Build via script        | `powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1` | **not verified** — version check + `bun install` + bundles; add `-Bundles nsis` for NSIS only      |
-| Package portable exe    | `bun run package:portable`                                           | release exe only (no NSIS/MSI); rewrites `dist-release/RedisDesktopManager_<version>_portable_x64.exe` |
+| Build portable exe      | `bun run tauri:build`                                                | the only packaging command: `tauri build --no-bundle`, then refreshes `dist-release/RedisDesktopManager_<version>_portable_x64.exe` |
 | Lint, format, types     | `bun x vp check`                                                     | verified, exit 0 (39 files; formatting, lint rules and type-aware check)                           |
 | Lint without formatting | `bun x vp check --no-fmt`                                            | verified, exit 0                                                                                   |
 | Frontend tests          | `bun x vp test`                                                      | exit 1 — no `*.test.*` / `*.spec.*` files exist; the Rust tests below are the only automated tests |
@@ -242,15 +240,16 @@ sent during development.
    `valueEditorPageSize`, fonts, live-update interval/limit.
 10. Startup settings migration on an existing SQLite file
     (`liveUpdateKeysLimit` 10000 → 1000) and idempotency on the next launch.
-11. Packaging: `scripts/build-windows.ps1`, NSIS languages/icon, window minimum
-    size 1024×700, and the portable exe.
+11. Packaging: `bun run tauri:build` → `scripts/package-portable.ps1` (`tauri
+    build --no-bundle`, exactly one portable exe in `dist-release/`), and the
+    window minimum size 1024×700.
 12. Statistics charts over a longer session (sample retention, axis rounding).
 
 ## Directory map
 
 ```
 new/
-├─ scripts/build-windows.ps1
+├─ scripts/package-portable.ps1
 ├─ src/
 │  ├─ lib/            types.ts, ipc.ts, defaults.ts, format.ts
 │  ├─ components/ui/  Button, fields, Dialog, Menu, Icon

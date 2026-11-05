@@ -1,10 +1,10 @@
 # Builds ONLY the portable single-file executable (no NSIS/MSI bundles) and
-# copies it to dist-release/, so the release directory always holds exactly one
-# file.
+# refreshes dist-release/ so the release directory always holds exactly one
+# file. This script is the implementation behind `bun run tauri:build`, the
+# single packaging entry point.
 #
 # Usage:
-#   bun run package:portable
-#   powershell -ExecutionPolicy Bypass -File scripts\package-portable.ps1
+#   bun run tauri:build
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
@@ -36,7 +36,7 @@ try {
     Write-Host "Building frontend + Rust release binary (no bundles)..." -ForegroundColor Cyan
     # `tauri build` runs `bun run build` (tsc --noEmit + vp build) first.
     # --no-bundle keeps NSIS and WiX out of the flow entirely.
-    bun run tauri:build -- --no-bundle
+    bun run tauri -- build --no-bundle
     if ($LASTEXITCODE -ne 0) {
         throw "tauri build --no-bundle failed with exit code $LASTEXITCODE"
     }
@@ -48,20 +48,36 @@ try {
         throw "Binary is empty: $releaseExe"
     }
 
-    # Clear dist-release only after a successful build, so a failed run never
-    # leaves a half-written or stale release directory behind.
-    if (Test-Path $distDir) {
-        Remove-Item $distDir -Recurse -Force
-    }
-    New-Item -ItemType Directory -Path $distDir | Out-Null
+    # Never delete dist-release before the build: it may still hold the last
+    # good release if the build fails. The folder is refreshed in place only
+    # after the binary exists and passed the checks above.
+    New-Item -ItemType Directory -Path $distDir -Force | Out-Null
 
     $finalName = "RedisDesktopManager_${version}_portable_x64.exe"
     $finalPath = Join-Path $distDir $finalName
-    Copy-Item $releaseExe $finalPath
+    $stagingPath = Join-Path $distDir ("{0}.partial" -f $finalName)
+    Copy-Item $releaseExe $stagingPath -Force
+    Copy-Item $stagingPath $finalPath -Force
+    Remove-Item $stagingPath -Force
+
+    # Keep exactly one artifact: drop files left behind by older runs.
+    Get-ChildItem $distDir -Force |
+        Where-Object { $_.Name -ne $finalName } |
+        Remove-Item -Force -Recurse
 
     $items = @(Get-ChildItem $distDir -Force)
-    if ($items.Count -ne 1) {
-        throw "dist-release must contain exactly one file, found $($items.Count)."
+    if ($items.Count -ne 1 -or $items[0].Name -ne $finalName) {
+        throw "dist-release must contain exactly '$finalName', found: $(($items | ForEach-Object { $_.Name }) -join ', ')."
+    }
+
+    # --no-bundle must not leave installers behind. Stale bundle output from an
+    # earlier `tauri build` run is removed so only the portable exe survives.
+    $bundleDir = Join-Path $root "src-tauri/target/release/bundle"
+    if (Test-Path $bundleDir) {
+        Remove-Item $bundleDir -Recurse -Force
+    }
+    if (Test-Path $bundleDir) {
+        throw "Unexpected bundle output in $bundleDir; only the portable exe is allowed."
     }
 
     $hash = (Get-FileHash $finalPath -Algorithm SHA256).Hash.ToLower()
