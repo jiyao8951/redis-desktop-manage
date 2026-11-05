@@ -24,13 +24,13 @@ export default function Toolbar({
   const t = useT();
 
   const menuItems: MenuItem[] = [
-    { key: "import", label: t("toolbar.import"), icon: "plus", onClick: onImport },
-    { key: "export", label: t("toolbar.export"), icon: "copy", onClick: onExport },
+    { key: "import", label: t("toolbar.import"), icon: "import", onClick: onImport },
+    { key: "export", label: t("toolbar.export"), icon: "export", onClick: onExport },
     {
       key: "toggle",
       label: t("toolbar.toggleTreeView"),
       shortcut: "Ctrl+Shift+E",
-      icon: "eye",
+      icon: "sidebar",
       onClick: onToggleTree,
     },
   ];
@@ -51,7 +51,7 @@ export default function Toolbar({
           <Icon name="chevron-down" />
         </Button>
         {menuOpen ? (
-          <Menu items={menuItems} onClose={() => setMenuOpen(false)} className="left-0 top-9" />
+          <Menu items={menuItems} onClose={() => setMenuOpen(false)} className="left-0 top-10" />
         ) : null}
       </div>
 
@@ -59,31 +59,24 @@ export default function Toolbar({
 
       <button
         type="button"
-        className="rounded-sm p-1.5 text-muted hover:bg-surface hover:text-text"
+        className="rounded-sm p-1.5 text-muted transition-colors hover:bg-base hover:text-text"
         title={t("toolbar.help")}
         onClick={() => void openUrl("https://docs.resp.app/")}
       >
-        <Icon name="search" />
+        <Icon name="help" />
       </button>
       <button
         type="button"
-        className="rounded-sm p-1.5 text-muted hover:bg-surface hover:text-text"
+        className="rounded-sm p-1.5 text-muted transition-colors hover:bg-base hover:text-text"
         title={t("toolbar.log")}
         onClick={onOpenLog}
       >
         <Icon name="log" />
       </button>
+      <span className="mx-0.5 h-4 w-px bg-border" />
       <button
         type="button"
-        className="rounded-sm p-1.5 text-muted hover:bg-surface hover:text-text"
-        title={t("toolbar.extensionServer")}
-        onClick={onOpenSettings}
-      >
-        <Icon name="lock" />
-      </button>
-      <button
-        type="button"
-        className="rounded-sm p-1.5 text-muted hover:bg-surface hover:text-text"
+        className="rounded-sm p-1.5 text-muted transition-colors hover:bg-base hover:text-text"
         title={t("toolbar.settings")}
         onClick={onOpenSettings}
       >

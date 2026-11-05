@@ -55,6 +55,16 @@ impl MonitorRegistry {
             handle.abort();
         }
     }
+
+    /// Aborts every MONITOR task during application shutdown. The task owns the
+    /// dedicated streaming connection, so aborting closes that socket.
+    pub async fn stop_all(&self) {
+        let handles: Vec<JoinHandle<()>> =
+            self.inner.lock().await.drain().map(|(_, handle)| handle).collect();
+        for handle in handles {
+            handle.abort();
+        }
+    }
 }
 
 fn join_batch(lines: &[String]) -> String {

@@ -148,6 +148,17 @@ export default function App() {
   }, [settings.appFont, settings.appFontSize]);
 
   useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "e") {
+        event.preventDefault();
+        setTreeVisible((value) => !value);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  useEffect(() => {
     const onMove = (event: MouseEvent) => {
       if (!dragging.current) return;
       const width = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, event.clientX));
@@ -297,11 +308,16 @@ export default function App() {
   const handleKeyRenamed = (tab: AppTab, newName: string) => {
     if (tab.connectionId === undefined || tab.db === undefined) return;
     const nextId = `key:${tab.connectionId}:${tab.db}:${newName}`;
-    setTabs((prev) =>
-      prev.map((item) =>
+    setTabs((prev) => {
+      // Renaming to an existing key means both tabs point at the same key.
+      // Keep a single tab for it instead of duplicating the id.
+      if (prev.some((item) => item.id === nextId && item.id !== tab.id)) {
+        return prev.filter((item) => item.id !== tab.id);
+      }
+      return prev.map((item) =>
         item.id === tab.id ? { ...item, id: nextId, title: newName, keyName: newName } : item,
-      ),
-    );
+      );
+    });
     setActiveTabId((prev) => (prev === tab.id ? nextId : prev));
   };
 
@@ -384,6 +400,7 @@ export default function App() {
                   groups={groups}
                   settings={settings}
                   revision={revision}
+                  onAddConnection={openNewConnection}
                   onEditConnection={(id) => void openEditConnection(id)}
                   onOpenServerTab={openServerTab}
                   onOpenKey={openKeyTab}
@@ -402,10 +419,12 @@ export default function App() {
                 />
               </aside>
               <div
-                className="w-[5px] shrink-0 cursor-col-resize bg-transparent hover:bg-highlight/40"
+                className="w-[4px] shrink-0 cursor-col-resize bg-border/30 transition-colors hover:bg-highlight/50 active:bg-highlight/60"
                 onMouseDown={() => {
                   dragging.current = true;
                 }}
+                role="separator"
+                aria-orientation="vertical"
                 aria-label={t("app.resizeTree")}
               />
             </>
@@ -478,7 +497,11 @@ export default function App() {
         </div>
 
         {toast ? (
-          <div className="pointer-events-none fixed bottom-4 left-1/2 z-50 max-w-[70vw] -translate-x-1/2 rounded-sm border border-border bg-surface px-3 py-2 text-[12px] shadow-xl">
+          <div
+            className="pointer-events-none fixed bottom-4 left-1/2 z-50 max-w-[min(600px,80vw)] -translate-x-1/2 rounded-md border border-border bg-base px-3.5 py-2.5 text-[12px] leading-5 text-text shadow-2xl"
+            role="status"
+            aria-live="polite"
+          >
             {toast}
           </div>
         ) : null}

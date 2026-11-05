@@ -121,6 +121,17 @@ impl LiveRegistry {
             }
         }
     }
+
+    /// Aborts every subscription task during application shutdown. Each task
+    /// owns its `PubSub` connection, so aborting drops the socket and the
+    /// server-side subscription.
+    pub async fn stop_all(&self) {
+        let handles: Vec<JoinHandle<()>> =
+            self.inner.lock().await.drain().map(|(_, handle)| handle).collect();
+        for handle in handles {
+            handle.abort();
+        }
+    }
 }
 
 async fn subscribe(config: &ConnectionConfig, db: u32) -> AppResult<redis::aio::PubSub> {

@@ -50,16 +50,18 @@ export default function SettingsDialog({
       onClose={onClose}
       footer={
         <>
+          <Button onClick={onClose}>{t("common.cancel")}</Button>
           <Button variant="primary" onClick={save}>
             {t("common.save")}
           </Button>
-          <Button onClick={onClose}>{t("common.cancel")}</Button>
         </>
       }
     >
-      <div className="space-y-5">
-        <section className="space-y-2">
-          <h3 className="text-[13px] font-semibold">{t("settings.appearance")}</h3>
+      <div className="space-y-4">
+        <section className="space-y-3 rounded-md border border-border bg-surface/40 p-4">
+          <h3 className="text-[12px] font-semibold uppercase tracking-wide text-muted">
+            {t("settings.appearance")}
+          </h3>
           <Field label={t("settings.language")}>
             <Select value={language} onChange={(e) => set("language", e.target.value as Language)}>
               <option value="en">{LANGUAGE_LABELS.en}</option>
@@ -96,23 +98,27 @@ export default function SettingsDialog({
           </div>
         </section>
 
-        <section className="space-y-2">
-          <h3 className="text-[13px] font-semibold">{t("settings.treeSection")}</h3>
-          <Checkbox
-            checked={draft.showNamespacesOnTop}
-            onChange={(v) => set("showNamespacesOnTop", v)}
-            label={t("settings.showNamespaces")}
-          />
-          <Checkbox
-            checked={draft.reopenNamespacesOnReload}
-            onChange={(v) => set("reopenNamespacesOnReload", v)}
-            label={t("settings.reopenNamespaces")}
-          />
-          <Checkbox
-            checked={draft.namespacedKeysShortName}
-            onChange={(v) => set("namespacedKeysShortName", v)}
-            label={t("settings.shortNames")}
-          />
+        <section className="space-y-3 rounded-md border border-border bg-surface/40 p-4">
+          <h3 className="text-[12px] font-semibold uppercase tracking-wide text-muted">
+            {t("settings.treeSection")}
+          </h3>
+          <div className="flex flex-col gap-2">
+            <Checkbox
+              checked={draft.showNamespacesOnTop}
+              onChange={(v) => set("showNamespacesOnTop", v)}
+              label={t("settings.showNamespaces")}
+            />
+            <Checkbox
+              checked={draft.reopenNamespacesOnReload}
+              onChange={(v) => set("reopenNamespacesOnReload", v)}
+              label={t("settings.reopenNamespaces")}
+            />
+            <Checkbox
+              checked={draft.namespacedKeysShortName}
+              onChange={(v) => set("namespacedKeysShortName", v)}
+              label={t("settings.shortNames")}
+            />
+          </div>
           <div className="grid grid-cols-2 gap-3 pt-1">
             <Field label={t("settings.scanLimit")} hint={t("settings.scanLimitHint")}>
               <NumberInput
@@ -153,8 +159,10 @@ export default function SettingsDialog({
           </div>
         </section>
 
-        <section className="space-y-2">
-          <h3 className="text-[13px] font-semibold">{t("settings.valueSection")}</h3>
+        <section className="space-y-3 rounded-md border border-border bg-surface/40 p-4">
+          <h3 className="text-[12px] font-semibold uppercase tracking-wide text-muted">
+            {t("settings.valueSection")}
+          </h3>
           <div className="grid grid-cols-2 gap-3">
             <Field label={t("settings.valueSize")} hint={t("settings.valueSizeHint")}>
               <NumberInput

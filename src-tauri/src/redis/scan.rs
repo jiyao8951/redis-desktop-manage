@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use redis::aio::ConnectionManager;
+use redis::Value;
 
 use crate::error::{AppError, AppResult};
 use crate::models::connection::ConnectionConfig;
@@ -85,29 +86,49 @@ pub(crate) async fn configured_databases(
     conn: &mut ConnectionManager,
     config: &ConnectionConfig,
 ) -> u32 {
-    let pair: Vec<String> = match query_with_timeout(
+    let reply: Value = match query_with_timeout(
         execute_timeout(config),
         redis::cmd("CONFIG")
             .arg("GET")
             .arg("databases")
-            .query_async::<Vec<String>>(conn),
+            .query_async::<Value>(conn),
     )
     .await
     {
-        Ok(values) => values,
+        Ok(value) => value,
         Err(_) => return 0,
     };
 
-    pair.get(1)
+    configured_databases_from_reply(&reply)
+}
+
+/// RESP2 answers with a flat `[name, value]` array; RESP3 answers with a map.
+/// Convert both shapes before reading the value.
+fn configured_databases_from_reply(reply: &Value) -> u32 {
+    let mut flat: Vec<&Value> = Vec::new();
+    match reply {
+        Value::Map(entries) => {
+            for (name, value) in entries {
+                flat.push(name);
+                flat.push(value);
+            }
+        }
+        Value::Array(items) | Value::Set(items) => flat.extend(items.iter()),
+        _ => {}
+    }
+
+    flat.get(1)
+        .and_then(|value| redis::from_redis_value::<String>(value).ok())
         .and_then(|value| value.trim().parse::<u32>().ok())
         .unwrap_or(0)
 }
 
 /// Mirrors TreeOperations::loadDatabases(): non-empty databases come from
-/// INFO keyspace, then empty databases are appended from the last index + 1 up
-/// to `databaseScanLimit`. Empty databases are detected with CONFIG GET when
-/// possible, otherwise by probing SELECT on a dedicated connection (never on
-/// the shared multiplexed manager, which would change its selected db).
+/// INFO keyspace, then every missing index below the configured count (or
+/// `databaseScanLimit`) is added with an empty key count. Empty databases are
+/// detected with CONFIG GET when possible, otherwise by probing SELECT on a
+/// dedicated connection (never on the shared multiplexed manager, which would
+/// change its selected db).
 async fn probe_empty_databases(
     config: &ConnectionConfig,
     start: u32,
@@ -156,20 +177,16 @@ pub async fn list_databases(
     let mut databases: BTreeMap<u32, u64> =
         existing.iter().map(|db| (db.index, db.keys)).collect();
 
-    let start = match databases.keys().next_back() {
-        Some(index) => index.saturating_add(1),
-        None => 0,
-    };
     let limit = config.db_scan_limit.max(1);
 
     let configured = configured_databases(conn, config).await;
     if configured > 0 {
         let cap = configured.min(limit);
-        for index in start..cap {
+        for index in 0..cap {
             databases.entry(index).or_insert(0);
         }
-    } else if start < limit {
-        for index in probe_empty_databases(config, start, limit).await {
+    } else {
+        for index in probe_empty_databases(config, 0, limit).await {
             databases.entry(index).or_insert(0);
         }
     }
@@ -215,4 +232,38 @@ pub async fn scan_keys(
         keys,
         page_size: count,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn bulk(text: &str) -> Value {
+        Value::BulkString(text.as_bytes().to_vec())
+    }
+
+    #[test]
+    fn configured_databases_reads_resp2_pair() {
+        let reply = Value::Array(vec![bulk("databases"), bulk("16")]);
+        assert_eq!(configured_databases_from_reply(&reply), 16);
+    }
+
+    #[test]
+    fn configured_databases_reads_resp3_map() {
+        let reply = Value::Map(vec![(bulk("databases"), bulk("16"))]);
+        assert_eq!(configured_databases_from_reply(&reply), 16);
+    }
+
+    #[test]
+    fn list_databases_fills_missing_indices_between_used_databases() {
+        let mut databases: BTreeMap<u32, u64> = BTreeMap::new();
+        for (index, keys) in [(0u32, 4u64), (1, 2), (2, 1), (10, 4)] {
+            databases.insert(index, keys);
+        }
+        for index in 0..16 {
+            databases.entry(index).or_insert(0);
+        }
+        let indices: Vec<u32> = databases.keys().copied().collect();
+        assert_eq!(indices, (0..16).collect::<Vec<u32>>());
+    }
 }

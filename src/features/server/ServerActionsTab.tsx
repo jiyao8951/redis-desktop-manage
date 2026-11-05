@@ -209,7 +209,7 @@ export default function ServerActionsTab({
   }[] = [
     {
       title: "chart.ops",
-      unit: "Ops/s",
+      unit: t("chart.unitOps"),
       kind: "line",
       key: "ops",
       initialMax: 100,
@@ -223,12 +223,12 @@ export default function ServerActionsTab({
     },
     {
       title: "chart.memory",
-      unit: "Mb",
+      unit: t("chart.unitMb"),
       kind: "spline",
       key: "memoryMb",
     },
-    { title: "chart.networkInput", unit: "Kb/s", kind: "line", key: "inputKbps" },
-    { title: "chart.networkOutput", unit: "Kb/s", kind: "line", key: "outputKbps" },
+    { title: "chart.networkInput", unit: t("chart.unitKbps"), kind: "line", key: "inputKbps" },
+    { title: "chart.networkOutput", unit: t("chart.unitKbps"), kind: "line", key: "outputKbps" },
     {
       title: "chart.errors",
       unit: t("chart.unitErrors"),
@@ -240,17 +240,20 @@ export default function ServerActionsTab({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-base">
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-1.5">
-        <span className="mr-1 text-[12px] font-medium text-text">{t("server.title")}</span>
-        {VIEWS.map((item) => (
-          <Button
-            key={item.id}
-            variant={view === item.id ? "primary" : "ghost"}
-            onClick={() => setView(item.id)}
-          >
-            {t(item.label)}
-          </Button>
-        ))}
+      <div className="flex flex-wrap items-center gap-1 border-b border-border bg-surface/40 px-3 py-1.5">
+        <span className="mr-1 text-[12px] font-semibold text-text">{t("server.title")}</span>
+        <div className="flex flex-wrap items-center gap-0.5 rounded-sm border border-border bg-surface p-0.5">
+          {VIEWS.map((item) => (
+            <Button
+              key={item.id}
+              variant={view === item.id ? "secondary" : "ghost"}
+              className={view === item.id ? "shadow-sm" : ""}
+              onClick={() => setView(item.id)}
+            >
+              {t(item.label)}
+            </Button>
+          ))}
+        </div>
         <div className="ml-auto flex items-center gap-2">
           <Checkbox
             checked={autoRefresh}
@@ -264,13 +267,13 @@ export default function ServerActionsTab({
       </div>
 
       <div className="flex items-center gap-2 border-b border-border px-3 py-1 text-[11px] text-muted">
-        <span>{connectionName}</span>
+        <span className="font-mono">{connectionName}</span>
         {loading ? <span>{t("server.loading")}</span> : null}
         {view === "config" ? <span>{t("server.configHint")}</span> : null}
       </div>
 
       {error ? (
-        <div className="border-b border-border bg-surface px-3 py-2 text-[12px] text-danger">
+        <div className="border-b border-border bg-danger/5 px-3 py-2 text-[12px] text-danger">
           {error}
         </div>
       ) : null}

@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 
+import Button from "../../components/ui/Button";
+import { Icon } from "../../components/ui/Icon";
 import { useT } from "../../lib/i18n";
 
 interface PaginationProps {
@@ -43,29 +45,21 @@ export default function Pagination({
   };
 
   return (
-    <div className="flex items-center gap-2 border-t border-border px-3 py-1.5 text-xs text-muted">
-      <button
-        type="button"
-        className="rounded border border-border px-2 py-0.5 text-text disabled:opacity-40"
-        onClick={onPrev}
-        disabled={prevDisabled}
-      >
+    <div className="flex items-center gap-2 border-t border-border bg-surface/40 px-3 py-1.5 text-[11px] text-muted">
+      <Button variant="secondary" onClick={onPrev} disabled={prevDisabled}>
+        <Icon name="chevron-left" className="h-3.5 w-3.5" />
         {t("pagination.prev")}
-      </button>
-      <span>
+      </Button>
+      <span className="font-mono">
         {t("pagination.page", { page: page + 1 })}
         {pageCount !== null ? ` ${t("pagination.of", { count: pageCount })}` : ""}
       </span>
-      <button
-        type="button"
-        className="rounded border border-border px-2 py-0.5 text-text disabled:opacity-40"
-        onClick={onNext}
-        disabled={nextDisabled}
-      >
+      <Button variant="secondary" onClick={onNext} disabled={nextDisabled}>
         {t("pagination.next")}
-      </button>
+        <Icon name="chevron-right" className="h-3.5 w-3.5" />
+      </Button>
       <input
-        className="w-16 rounded border border-border bg-base px-2 py-0.5 text-text outline-none"
+        className="h-7 w-16 rounded-sm border border-border bg-base px-2 font-mono text-[11px] text-text outline-none hover:border-muted/50 focus:border-highlight/60"
         value={jump}
         onChange={(event) => setJump(event.target.value)}
         onKeyDown={(event) => {
@@ -73,14 +67,10 @@ export default function Pagination({
         }}
         aria-label={t("pagination.pageNumber")}
       />
-      <button
-        type="button"
-        className="rounded border border-border px-2 py-0.5 text-text"
-        onClick={go}
-      >
+      <Button variant="ghost" onClick={go}>
         {t("pagination.goTo")}
-      </button>
-      <span className="ml-auto">
+      </Button>
+      <span className="ml-auto font-mono">
         {t("pagination.loaded", { loaded })}
         {total !== null ? ` / ${total}` : ""} · {t("pagination.perPage", { size: pageSize })}
       </span>

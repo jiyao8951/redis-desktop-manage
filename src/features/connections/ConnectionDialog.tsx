@@ -4,6 +4,7 @@ import Dialog from "../../components/ui/Dialog";
 import Button from "../../components/ui/Button";
 import FilePathInput from "../../components/ui/FilePathInput";
 import { Checkbox, NumberInput, Radio, Select, TextInput } from "../../components/ui/fields";
+import { Icon } from "../../components/ui/Icon";
 import { ipc } from "../../lib/ipc";
 import { createEmptyConnection } from "../../lib/defaults";
 import { clampInt, errMessage } from "../../lib/format";
@@ -149,13 +150,45 @@ export default function ConnectionDialog({
     }
   };
 
+  const footer = (
+    <div className="flex w-full items-center gap-2">
+      <Button onClick={() => void doTest()} disabled={busy}>
+        {busy ? t("conn.testing") : t("conn.test")}
+      </Button>
+      {!isNew ? (
+        <Button onClick={() => void openUrl("http://docs.resp.app/en/latest/quick-start/")}>
+          {t("conn.quickStart")}
+        </Button>
+      ) : null}
+      {isNew ? (
+        <button
+          type="button"
+          className="text-[11px] text-muted underline-offset-2 hover:text-text hover:underline"
+          onClick={() => {
+            setDraft(createEmptyConnection());
+            onNotify(t("conn.resetDone"));
+          }}
+        >
+          {t("conn.resetSettings")}
+        </button>
+      ) : null}
+      <div className="flex-1" />
+      {invalid ? <span className="text-[12px] text-danger">{t("conn.invalid")}</span> : null}
+      <Button onClick={onClose}>{t("common.cancel")}</Button>
+      <Button variant="primary" onClick={doSave}>
+        {t("common.ok")}
+      </Button>
+    </div>
+  );
+
   return (
     <Dialog
       title={isNew ? t("conn.titleNew") : t("conn.titleEdit", { name: initial.name })}
       width={860}
       onClose={onClose}
+      footer={footer}
     >
-      <div className="flex gap-4 border-b border-border pb-2 text-[12px]">
+      <div className="mb-4 inline-flex rounded-md border border-border bg-surface p-1 text-[12px]">
         {isNew ? (
           <TabButton active={tab === "wizard"} onClick={() => setTab("wizard")}>
             {t("conn.tabWizard")}
@@ -169,7 +202,30 @@ export default function ConnectionDialog({
         </TabButton>
       </div>
 
-      <div className="min-h-[420px] pt-4">
+      {testResult ? (
+        <div
+          className={`mb-4 rounded-md border p-3 text-[12px] ${
+            testResult.success ? "border-success/50 bg-success/5" : "border-danger/50 bg-danger/5"
+          }`}
+        >
+          <div
+            className={`flex items-center gap-1.5 font-medium ${
+              testResult.success ? "text-success" : "text-danger"
+            }`}
+          >
+            <Icon name={testResult.success ? "check" : "alert"} />
+            {testResult.success ? t("conn.testSuccess") : t("conn.testFailed")}
+          </div>
+          {testResult.message ? (
+            <div className="mt-1.5 whitespace-pre-wrap text-text/90">{testResult.message}</div>
+          ) : null}
+          {testResult.warning ? (
+            <div className="mt-1.5 whitespace-pre-wrap text-muted">{testResult.warning}</div>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="min-h-[420px]">
         {tab === "wizard" ? (
           <div className="space-y-5">
             <h3 className="text-[13px] font-semibold">{t("conn.urlHeading")}</h3>
@@ -186,11 +242,11 @@ export default function ConnectionDialog({
                 {t("conn.import")}
               </Button>
             </div>
-            <p className="text-[12px]">
+            <p className="text-[12px] text-muted">
               {t("conn.urlHelp")}{" "}
               <button
                 type="button"
-                className="text-highlight underline"
+                className="text-highlight underline-offset-2 hover:underline"
                 onClick={() =>
                   void openUrl("https://www.iana.org/assignments/uri-schemes/prov/redis")
                 }
@@ -200,7 +256,7 @@ export default function ConnectionDialog({
               ,{" "}
               <button
                 type="button"
-                className="text-highlight underline"
+                className="text-highlight underline-offset-2 hover:underline"
                 onClick={() =>
                   void openUrl("https://www.iana.org/assignments/uri-schemes/prov/rediss")
                 }
@@ -216,7 +272,7 @@ export default function ConnectionDialog({
                   key={tile.label}
                   type="button"
                   title={tile.url}
-                  className="flex h-[90px] items-center justify-center rounded-sm border border-border bg-base px-2 text-center text-[12px] hover:bg-surface"
+                  className="flex h-[76px] items-center justify-center rounded-md border border-border bg-surface/50 px-2 text-center text-[12px] text-text transition-colors hover:border-highlight/60 hover:bg-surface"
                   onClick={() => void openUrl(tile.url)}
                 >
                   {t(tile.label)}
@@ -224,25 +280,25 @@ export default function ConnectionDialog({
               ))}
             </div>
 
-            <div className="space-y-1 pt-2">
+            <div className="space-y-1 pt-1">
               <h3 className="text-[13px] font-semibold">{t("conn.cannotConnect")}</h3>
-              <p className="text-[12px]">
+              <p className="text-[12px] text-muted">
                 <button
-                  className="text-highlight underline"
+                  className="text-highlight underline-offset-2 hover:underline"
                   onClick={() => void openUrl("https://docs.resp.app/en/latest/quick-start/")}
                 >
                   {t("conn.readDocs")}
                 </button>
                 ,{" "}
                 <button
-                  className="text-highlight underline"
+                  className="text-highlight underline-offset-2 hover:underline"
                   onClick={() => void openUrl("mailto:support@resp.app")}
                 >
                   {t("conn.contactSupport")}
                 </button>{" "}
                 {t("conn.orAsk")}{" "}
                 <button
-                  className="text-highlight underline"
+                  className="text-highlight underline-offset-2 hover:underline"
                   onClick={() => void openUrl("https://t.me/RedisDesktopManager")}
                 >
                   {t("conn.telegram")}
@@ -253,7 +309,7 @@ export default function ConnectionDialog({
             <div className="space-y-1">
               <h3 className="text-[13px] font-semibold">{t("conn.noRedis")}</h3>
               <button
-                className="text-[12px] text-highlight underline"
+                className="text-[12px] text-highlight hover:underline"
                 onClick={() =>
                   void openUrl(
                     "https://redis.com/try-free/?utm_source=respapp&utm_medium=app&utm_campaign=newconn",
@@ -264,7 +320,7 @@ export default function ConnectionDialog({
               </button>
             </div>
 
-            <div className="flex justify-end pt-2">
+            <div className="flex justify-end pt-1">
               <Button onClick={() => setTab("basic")}>{t("conn.skip")}</Button>
             </div>
           </div>
@@ -272,327 +328,308 @@ export default function ConnectionDialog({
 
         {tab === "basic" ? (
           <div className="space-y-4">
-            <div className="grid grid-cols-[130px_1fr] items-center gap-x-3 gap-y-2">
-              <span className="text-[12px]">{t("conn.name")}</span>
-              <TextInput
-                value={draft.name}
-                placeholder={t("conn.namePlaceholder")}
-                autoFocus={isNew}
-                onChange={(e) => set("name", e.target.value)}
-              />
-
-              <span className="text-[12px]">{t("conn.address")}</span>
-              <div className="flex items-center gap-1">
+            <Section title={t("conn.groupEndpoint")}>
+              <div className="grid grid-cols-[120px_1fr] items-center gap-x-3 gap-y-2">
+                <span className="text-[12px] text-muted">{t("conn.name")}</span>
                 <TextInput
-                  value={draft.host}
-                  placeholder={t("conn.hostPlaceholder")}
-                  onChange={(e) => set("host", e.target.value)}
+                  value={draft.name}
+                  placeholder={t("conn.namePlaceholder")}
+                  autoFocus={isNew}
+                  onChange={(e) => set("name", e.target.value)}
                 />
-                <span>:</span>
-                <NumberInput
-                  className="w-[110px]"
-                  min={1}
-                  max={10_000_000}
-                  value={draft.port}
-                  onChange={(e) => set("port", Number(e.target.value))}
-                />
-              </div>
-            </div>
 
-            {!sshEnabled && !draft.sslEnabled && draft.host.toLowerCase() === "localhost" ? (
-              <p className="text-[12px] text-muted">{t("conn.localhostHint")}</p>
-            ) : null}
-
-            <div className="grid grid-cols-[130px_1fr] items-center gap-x-3 gap-y-2">
-              <span className="text-[12px]">{t("conn.password")}</span>
-              <TextInput
-                type="password"
-                value={draft.auth}
-                placeholder={t("conn.passwordPlaceholder")}
-                onChange={(e) => set("auth", e.target.value)}
-              />
-              <span className="text-[12px]">{t("conn.username")}</span>
-              <TextInput
-                value={draft.username}
-                placeholder={t("conn.usernamePlaceholder")}
-                onChange={(e) => set("username", e.target.value)}
-              />
-            </div>
-
-            <h3 className="pt-1 text-[13px] font-semibold">{t("conn.security")}</h3>
-            <div className="flex gap-6">
-              <Radio
-                checked={draft.sslEnabled && !sshEnabled}
-                onChange={() => set("sslEnabled", !(draft.sslEnabled && !sshEnabled))}
-                label={t("conn.ssl")}
-              />
-              <Radio
-                checked={sshEnabled}
-                onChange={() => setSshEnabled((v) => !v)}
-                label={t("conn.ssh")}
-              />
-            </div>
-
-            {draft.sslEnabled && !sshEnabled ? (
-              <div className="grid grid-cols-[130px_1fr] items-center gap-x-3 gap-y-2">
-                <span className="text-[12px]">{t("conn.publicKey")}</span>
-                <FilePathInput
-                  path={draft.sslLocalCertPath}
-                  placeholder={t("conn.publicKeyPlaceholder")}
-                  filters={[{ name: t("conn.filterPublicKey"), extensions: ["pem", "crt"] }]}
-                  onChange={(v) => set("sslLocalCertPath", v)}
-                />
-                <span className="text-[12px]">{t("conn.privateKey")}</span>
-                <FilePathInput
-                  path={draft.sslPrivateKeyPath}
-                  placeholder={t("conn.privateKeyPlaceholder")}
-                  filters={[{ name: t("conn.filterPrivateKey"), extensions: ["pem", "key"] }]}
-                  onChange={(v) => set("sslPrivateKeyPath", v)}
-                />
-                <span className="text-[12px]">{t("conn.authority")}</span>
-                <FilePathInput
-                  path={draft.sslCaCertPath}
-                  placeholder={t("conn.authorityPlaceholder")}
-                  filters={[{ name: t("conn.filterAuthority"), extensions: ["pem", "crt"] }]}
-                  onChange={(v) => set("sslCaCertPath", v)}
-                />
-                <span className="text-[12px]">{t("conn.strictMode")}</span>
-                <Checkbox
-                  checked={!draft.ignoreSslErrors}
-                  onChange={(v) => set("ignoreSslErrors", !v)}
-                  label=""
-                />
-              </div>
-            ) : null}
-
-            {sshEnabled ? (
-              <div className="space-y-3 rounded-sm border border-border p-3">
-                <div className="grid grid-cols-[130px_1fr] items-center gap-x-3 gap-y-2">
-                  <span className="text-[12px]">{t("conn.sshAddress")}</span>
-                  <div className="flex items-center gap-1">
-                    <TextInput
-                      value={draft.sshHost}
-                      placeholder={t("conn.sshHostPlaceholder")}
-                      onChange={(e) => set("sshHost", e.target.value)}
-                    />
-                    <span>:</span>
-                    <NumberInput
-                      className="w-[100px]"
-                      min={1}
-                      max={65535}
-                      value={draft.sshPort}
-                      onChange={(e) => set("sshPort", Number(e.target.value))}
-                    />
-                  </div>
-                  <span className="text-[12px]">{t("conn.sshUser")}</span>
+                <span className="text-[12px] text-muted">{t("conn.address")}</span>
+                <div className="flex items-center gap-1">
                   <TextInput
-                    value={draft.sshUser}
-                    placeholder={t("conn.sshUserPlaceholder")}
-                    onChange={(e) => set("sshUser", e.target.value)}
+                    value={draft.host}
+                    placeholder={t("conn.hostPlaceholder")}
+                    onChange={(e) => set("host", e.target.value)}
+                  />
+                  <span>:</span>
+                  <NumberInput
+                    className="w-[110px]"
+                    min={1}
+                    max={10_000_000}
+                    value={draft.port}
+                    onChange={(e) => set("port", Number(e.target.value))}
                   />
                 </div>
+              </div>
+              {!sshEnabled && !draft.sslEnabled && draft.host.toLowerCase() === "localhost" ? (
+                <p className="mt-2 text-[12px] text-muted">{t("conn.localhostHint")}</p>
+              ) : null}
+            </Section>
 
-                <Checkbox
-                  checked={draft.sshAgent}
-                  onChange={(v) => set("sshAgent", v)}
-                  label={t("conn.useAgent")}
+            <Section title={t("conn.groupAuth")}>
+              <div className="grid grid-cols-[120px_1fr] items-center gap-x-3 gap-y-2">
+                <span className="text-[12px] text-muted">{t("conn.password")}</span>
+                <TextInput
+                  type="password"
+                  value={draft.auth}
+                  placeholder={t("conn.passwordPlaceholder")}
+                  onChange={(e) => set("auth", e.target.value)}
                 />
-                <FilePathInput
-                  path={draft.sshAgentPath}
-                  placeholder={t("conn.agentPathPlaceholder")}
-                  filters={[{ name: t("conn.filterSshAgent"), extensions: ["exe", "*"] }]}
-                  onChange={(v) => set("sshAgentPath", v)}
-                />
-
-                <div className="rounded-sm border border-border p-2">
-                  <Checkbox
-                    checked={useSshKey}
-                    onChange={setUseSshKey}
-                    disabled={draft.sshAgent}
-                    label={t("conn.privateKeyLabel")}
-                  />
-                  <div className={useSshKey && !draft.sshAgent ? "" : "opacity-50"}>
-                    <FilePathInput
-                      path={draft.sshPrivateKey}
-                      placeholder={t("conn.privateKeyPathPlaceholder")}
-                      filters={[
-                        { name: t("conn.filterSshPrivateKey"), extensions: ["pem", "key"] },
-                      ]}
-                      onChange={(v) => set("sshPrivateKey", v)}
-                    />
-                  </div>
-                </div>
-
-                <div className="rounded-sm border border-border p-2">
-                  <Checkbox
-                    checked={useSshPassword}
-                    onChange={setUseSshPassword}
-                    disabled={draft.sshAgent}
-                    label={useSshKey ? t("conn.passphrase") : t("conn.passwordLabel")}
-                  />
-                  <div className="mt-1 flex items-center gap-2">
-                    <TextInput
-                      type="password"
-                      value={draft.sshPassword}
-                      disabled={!useSshPassword || draft.askForSshPassword || draft.sshAgent}
-                      placeholder={
-                        useSshKey
-                          ? t("conn.passphrasePlaceholder")
-                          : draft.askForSshPassword
-                            ? t("conn.passwordPromptPlaceholder")
-                            : t("conn.sshPasswordPlaceholder")
-                      }
-                      onChange={(e) => set("sshPassword", e.target.value)}
-                    />
-                    <Checkbox
-                      checked={draft.askForSshPassword}
-                      onChange={(v) => set("askForSshPassword", v)}
-                      label={t("conn.askPassword")}
-                    />
-                  </div>
-                </div>
-
-                <Checkbox
-                  checked={draft.sslEnabled}
-                  onChange={(v) => set("sslEnabled", v)}
-                  label={t("conn.tlsOverSsh")}
+                <span className="text-[12px] text-muted">{t("conn.username")}</span>
+                <TextInput
+                  value={draft.username}
+                  placeholder={t("conn.usernamePlaceholder")}
+                  onChange={(e) => set("username", e.target.value)}
                 />
               </div>
-            ) : null}
+            </Section>
+
+            <Section title={t("conn.security")}>
+              <div className="flex gap-6">
+                <Radio
+                  checked={draft.sslEnabled && !sshEnabled}
+                  onChange={() => set("sslEnabled", !(draft.sslEnabled && !sshEnabled))}
+                  label={t("conn.ssl")}
+                />
+                <Radio
+                  checked={sshEnabled}
+                  onChange={() => setSshEnabled((v) => !v)}
+                  label={t("conn.ssh")}
+                />
+              </div>
+
+              {draft.sslEnabled && !sshEnabled ? (
+                <div className="mt-3 grid grid-cols-[120px_1fr] items-center gap-x-3 gap-y-2">
+                  <span className="text-[12px] text-muted">{t("conn.publicKey")}</span>
+                  <FilePathInput
+                    path={draft.sslLocalCertPath}
+                    placeholder={t("conn.publicKeyPlaceholder")}
+                    filters={[{ name: t("conn.filterPublicKey"), extensions: ["pem", "crt"] }]}
+                    onChange={(v) => set("sslLocalCertPath", v)}
+                  />
+                  <span className="text-[12px] text-muted">{t("conn.privateKey")}</span>
+                  <FilePathInput
+                    path={draft.sslPrivateKeyPath}
+                    placeholder={t("conn.privateKeyPlaceholder")}
+                    filters={[{ name: t("conn.filterPrivateKey"), extensions: ["pem", "key"] }]}
+                    onChange={(v) => set("sslPrivateKeyPath", v)}
+                  />
+                  <span className="text-[12px] text-muted">{t("conn.authority")}</span>
+                  <FilePathInput
+                    path={draft.sslCaCertPath}
+                    placeholder={t("conn.authorityPlaceholder")}
+                    filters={[{ name: t("conn.filterAuthority"), extensions: ["pem", "crt"] }]}
+                    onChange={(v) => set("sslCaCertPath", v)}
+                  />
+                  <span className="text-[12px] text-muted">{t("conn.strictMode")}</span>
+                  <Checkbox
+                    checked={!draft.ignoreSslErrors}
+                    onChange={(v) => set("ignoreSslErrors", !v)}
+                    label=""
+                  />
+                </div>
+              ) : null}
+
+              {sshEnabled ? (
+                <div className="mt-3 space-y-3 rounded-md border border-border bg-base p-3">
+                  <div className="grid grid-cols-[120px_1fr] items-center gap-x-3 gap-y-2">
+                    <span className="text-[12px] text-muted">{t("conn.sshAddress")}</span>
+                    <div className="flex items-center gap-1">
+                      <TextInput
+                        value={draft.sshHost}
+                        placeholder={t("conn.sshHostPlaceholder")}
+                        onChange={(e) => set("sshHost", e.target.value)}
+                      />
+                      <span>:</span>
+                      <NumberInput
+                        className="w-[100px]"
+                        min={1}
+                        max={65535}
+                        value={draft.sshPort}
+                        onChange={(e) => set("sshPort", Number(e.target.value))}
+                      />
+                    </div>
+                    <span className="text-[12px] text-muted">{t("conn.sshUser")}</span>
+                    <TextInput
+                      value={draft.sshUser}
+                      placeholder={t("conn.sshUserPlaceholder")}
+                      onChange={(e) => set("sshUser", e.target.value)}
+                    />
+                  </div>
+
+                  <Checkbox
+                    checked={draft.sshAgent}
+                    onChange={(v) => set("sshAgent", v)}
+                    label={t("conn.useAgent")}
+                  />
+                  <FilePathInput
+                    path={draft.sshAgentPath}
+                    placeholder={t("conn.agentPathPlaceholder")}
+                    filters={[{ name: t("conn.filterSshAgent"), extensions: ["exe", "*"] }]}
+                    onChange={(v) => set("sshAgentPath", v)}
+                  />
+
+                  <div className="rounded-md border border-border p-2">
+                    <Checkbox
+                      checked={useSshKey}
+                      onChange={setUseSshKey}
+                      disabled={draft.sshAgent}
+                      label={t("conn.privateKeyLabel")}
+                    />
+                    <div className={`mt-2 ${useSshKey && !draft.sshAgent ? "" : "opacity-50"}`}>
+                      <FilePathInput
+                        path={draft.sshPrivateKey}
+                        placeholder={t("conn.privateKeyPathPlaceholder")}
+                        filters={[
+                          { name: t("conn.filterSshPrivateKey"), extensions: ["pem", "key"] },
+                        ]}
+                        onChange={(v) => set("sshPrivateKey", v)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="rounded-md border border-border p-2">
+                    <Checkbox
+                      checked={useSshPassword}
+                      onChange={setUseSshPassword}
+                      disabled={draft.sshAgent}
+                      label={useSshKey ? t("conn.passphrase") : t("conn.passwordLabel")}
+                    />
+                    <div className="mt-2 flex items-center gap-2">
+                      <TextInput
+                        type="password"
+                        value={draft.sshPassword}
+                        disabled={!useSshPassword || draft.askForSshPassword || draft.sshAgent}
+                        placeholder={
+                          useSshKey
+                            ? t("conn.passphrasePlaceholder")
+                            : draft.askForSshPassword
+                              ? t("conn.passwordPromptPlaceholder")
+                              : t("conn.sshPasswordPlaceholder")
+                        }
+                        onChange={(e) => set("sshPassword", e.target.value)}
+                      />
+                      <Checkbox
+                        checked={draft.askForSshPassword}
+                        onChange={(v) => set("askForSshPassword", v)}
+                        label={t("conn.askPassword")}
+                      />
+                    </div>
+                  </div>
+
+                  <Checkbox
+                    checked={draft.sslEnabled}
+                    onChange={(v) => set("sslEnabled", v)}
+                    label={t("conn.tlsOverSsh")}
+                  />
+                </div>
+              ) : null}
+            </Section>
           </div>
         ) : null}
 
         {tab === "advanced" ? (
-          <div className="grid grid-cols-[190px_1fr] items-center gap-x-3 gap-y-3">
-            <h3 className="col-span-2 text-[13px] font-semibold">{t("conn.keysLoading")}</h3>
-            <span className="text-[12px]">{t("conn.defaultFilter")}</span>
-            <TextInput
-              value={draft.keysPattern}
-              placeholder={t("conn.defaultFilterPlaceholder")}
-              onChange={(e) => set("keysPattern", e.target.value)}
-            />
-            <span className="text-[12px]">{t("conn.namespaceSeparator")}</span>
-            <TextInput
-              value={draft.namespaceSeparator}
-              placeholder={t("conn.namespaceSeparatorPlaceholder")}
-              onChange={(e) => set("namespaceSeparator", e.target.value)}
-            />
+          <div className="space-y-4">
+            <Section title={t("conn.keysLoading")}>
+              <div className="grid grid-cols-[150px_1fr] items-center gap-x-3 gap-y-2">
+                <span className="text-[12px] text-muted">{t("conn.defaultFilter")}</span>
+                <TextInput
+                  value={draft.keysPattern}
+                  placeholder={t("conn.defaultFilterPlaceholder")}
+                  onChange={(e) => set("keysPattern", e.target.value)}
+                />
+                <span className="text-[12px] text-muted">{t("conn.namespaceSeparator")}</span>
+                <TextInput
+                  value={draft.namespaceSeparator}
+                  placeholder={t("conn.namespaceSeparatorPlaceholder")}
+                  onChange={(e) => set("namespaceSeparator", e.target.value)}
+                />
+              </div>
+            </Section>
 
-            <h3 className="col-span-2 pt-1 text-[13px] font-semibold">{t("conn.timeouts")}</h3>
-            <span className="text-[12px]">{t("conn.connectionTimeout")}</span>
-            <NumberInput
-              min={10}
-              max={100000}
-              value={draft.executeTimeout / 1000}
-              onChange={(e) => set("executeTimeout", Number(e.target.value) * 1000)}
-            />
-            <span className="text-[12px]">{t("conn.executionTimeout")}</span>
-            <NumberInput
-              min={10}
-              max={100000}
-              value={draft.connectionTimeout / 1000}
-              onChange={(e) => set("connectionTimeout", Number(e.target.value) * 1000)}
-            />
-            <span className="text-[12px]">{t("conn.dbDiscovery")}</span>
-            <NumberInput
-              min={1}
-              max={100000}
-              value={draft.dbScanLimit}
-              onChange={(e) => set("dbScanLimit", Number(e.target.value))}
-            />
+            <Section title={t("conn.timeouts")}>
+              <div className="grid grid-cols-[150px_110px_1fr] items-center gap-x-3 gap-y-2">
+                <span className="text-[12px] text-muted">{t("conn.connectionTimeout")}</span>
+                <NumberInput
+                  min={10}
+                  max={100000}
+                  value={draft.connectionTimeout / 1000}
+                  onChange={(e) => set("connectionTimeout", Number(e.target.value) * 1000)}
+                />
+                <span className="text-[11px] text-muted">{t("conn.seconds")}</span>
+                <span className="text-[12px] text-muted">{t("conn.executionTimeout")}</span>
+                <NumberInput
+                  min={10}
+                  max={100000}
+                  value={draft.executeTimeout / 1000}
+                  onChange={(e) => set("executeTimeout", Number(e.target.value) * 1000)}
+                />
+                <span className="text-[11px] text-muted">{t("conn.seconds")}</span>
+                <span className="text-[12px] text-muted">{t("conn.dbDiscovery")}</span>
+                <NumberInput
+                  min={1}
+                  max={100000}
+                  value={draft.dbScanLimit}
+                  onChange={(e) => set("dbScanLimit", Number(e.target.value))}
+                />
+                <span />
+              </div>
+            </Section>
 
-            <h3 className="col-span-2 pt-1 text-[13px] font-semibold">{t("conn.cluster")}</h3>
-            <span className="text-[12px]">{t("conn.overrideClusterHost")}</span>
-            <Checkbox
-              checked={draft.overrideClusterHost}
-              onChange={(v) => set("overrideClusterHost", v)}
-              label=""
-            />
-
-            <h3 className="col-span-2 pt-1 text-[13px] font-semibold">{t("conn.formatters")}</h3>
-            <span className="text-[12px]">{t("conn.defaultFormatter")}</span>
-            <Select
-              value={
-                draft.defaultFormatter === "auto"
-                  ? "auto"
-                  : draft.defaultFormatter === "last_selected"
-                    ? "last_selected"
-                    : "auto"
-              }
-              onChange={(e) => set("defaultFormatter", e.target.value)}
-            >
-              <option value="auto">{t("conn.formatterAuto")}</option>
-              <option value="last_selected">{t("conn.formatterLast")}</option>
-            </Select>
-
-            <h3 className="col-span-2 pt-1 text-[13px] font-semibold">{t("conn.appearance")}</h3>
-            <span className="text-[12px]">{t("conn.iconColor")}</span>
-            <div className="flex items-center gap-2">
-              <input
-                type="color"
-                value={draft.iconColor || "#c6302b"}
-                className="h-7 w-12 rounded-sm border border-border bg-base"
-                onChange={(e) => set("iconColor", e.target.value)}
+            <Section title={t("conn.cluster")}>
+              <Checkbox
+                checked={draft.overrideClusterHost}
+                onChange={(v) => set("overrideClusterHost", v)}
+                label={t("conn.overrideClusterHost")}
               />
-              <Button onClick={() => set("iconColor", "")}>{t("conn.reset")}</Button>
-            </div>
+            </Section>
 
-            <h3 className="col-span-2 pt-1 text-[13px] font-semibold">
-              {t("conn.protocolSection")}
-            </h3>
-            <span className="text-[12px]">{t("conn.respProtocol")}</span>
-            <Select
-              value={draft.protocol}
-              onChange={(e) => set("protocol", e.target.value as ConnectionConfig["protocol"])}
-            >
-              <option value="resp2">{t("conn.resp2")}</option>
-              <option value="resp3">{t("conn.resp3")}</option>
-            </Select>
+            <Section title={t("conn.protocolSection")}>
+              <div className="grid grid-cols-[150px_1fr] items-center gap-x-3 gap-y-2">
+                <span className="text-[12px] text-muted">{t("conn.respProtocol")}</span>
+                <Select
+                  value={draft.protocol}
+                  onChange={(e) =>
+                    set("protocol", e.target.value as ConnectionConfig["protocol"])
+                  }
+                >
+                  <option value="resp2">{t("conn.resp2")}</option>
+                  <option value="resp3">{t("conn.resp3")}</option>
+                </Select>
+                <span className="text-[12px] text-muted">{t("conn.defaultFormatter")}</span>
+                <Select
+                  value={
+                    draft.defaultFormatter === "last_selected" ? "last_selected" : "auto"
+                  }
+                  onChange={(e) => set("defaultFormatter", e.target.value)}
+                >
+                  <option value="auto">{t("conn.formatterAuto")}</option>
+                  <option value="last_selected">{t("conn.formatterLast")}</option>
+                </Select>
+              </div>
+            </Section>
+
+            <Section title={t("conn.appearance")}>
+              <div className="flex items-center gap-3">
+                <span className="text-[12px] text-muted">{t("conn.iconColor")}</span>
+                <input
+                  type="color"
+                  value={draft.iconColor || "#c6302b"}
+                  className="h-7 w-12 cursor-pointer rounded-sm border border-border bg-base"
+                  onChange={(e) => set("iconColor", e.target.value)}
+                />
+                <Button onClick={() => set("iconColor", "")}>{t("conn.reset")}</Button>
+              </div>
+            </Section>
           </div>
         ) : null}
       </div>
-
-      {testResult ? (
-        <div
-          className={`mt-3 rounded-sm border p-2 text-[12px] ${
-            testResult.success ? "border-success/60 text-success" : "border-danger/60 text-danger"
-          }`}
-        >
-          {testResult.message}
-          {testResult.warning ? <div className="mt-1 text-muted">{testResult.warning}</div> : null}
-        </div>
-      ) : null}
-
-      <div className="mt-4 flex items-center gap-2 border-t border-border pt-3">
-        <Button onClick={() => void doTest()} disabled={busy}>
-          {busy ? t("conn.testing") : t("conn.test")}
-        </Button>
-        {!isNew ? (
-          <Button onClick={() => void openUrl("http://docs.resp.app/en/latest/quick-start/")}>
-            {t("conn.quickStart")}
-          </Button>
-        ) : null}
-        <div className="flex-1" />
-        {invalid ? <span className="text-[12px] text-danger">{t("conn.invalid")}</span> : null}
-        <Button variant="primary" onClick={doSave}>
-          {t("common.ok")}
-        </Button>
-        <Button onClick={onClose}>{t("common.cancel")}</Button>
-      </div>
-
-      {isNew ? (
-        <button
-          type="button"
-          className="mt-2 text-[11px] text-muted underline"
-          onClick={() => {
-            setDraft(createEmptyConnection());
-            onNotify(t("conn.resetDone"));
-          }}
-        >
-          {t("conn.resetSettings")}
-        </button>
-      ) : null}
     </Dialog>
+  );
+}
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="rounded-md border border-border bg-surface/40 p-4">
+      <h3 className="mb-3 text-[12px] font-semibold uppercase tracking-wide text-muted">
+        {title}
+      </h3>
+      {children}
+    </section>
   );
 }
 
@@ -608,8 +645,10 @@ function TabButton({
   return (
     <button
       type="button"
-      className={`border-b-2 px-2 pb-1 ${
-        active ? "border-accent text-text" : "border-transparent text-muted hover:text-text"
+      className={`rounded-sm px-3 py-1.5 transition-colors ${
+        active
+          ? "bg-base text-text shadow-sm"
+          : "text-muted hover:bg-base/60 hover:text-text"
       }`}
       onClick={onClick}
     >

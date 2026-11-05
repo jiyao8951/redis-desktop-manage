@@ -1,5 +1,8 @@
 import { useState } from "react";
 
+import Button from "../../components/ui/Button";
+import Dialog from "../../components/ui/Dialog";
+import { Select, TextInput } from "../../components/ui/fields";
 import { ipc } from "../../lib/ipc";
 import { errMessage } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -38,8 +41,9 @@ export default function AddKeyDialog({
   const [members, setMembers] = useState("");
   const [streamId, setStreamId] = useState("*");
   const [busy, setBusy] = useState(false);
+  const [confirmOverwrite, setConfirmOverwrite] = useState(false);
 
-  const submit = async () => {
+  const submit = async (overwrite = false) => {
     if (!name.trim()) {
       onNotify(t("addKey.nameRequired"));
       return;
@@ -48,15 +52,14 @@ export default function AddKeyDialog({
       onNotify(t("addKey.membersRequired"));
       return;
     }
-    let existing = false;
-    try {
-      await ipc.keyValueInfo({ connectionId, db, key: name.trim() });
-      existing = true;
-      if (!window.confirm(t("addKey.overwrite"))) {
+    if (!overwrite) {
+      try {
+        await ipc.keyValueInfo({ connectionId, db, key: name.trim() });
+        setConfirmOverwrite(true);
         return;
+      } catch {
+        // TYPE returned "none": the key is free.
       }
-    } catch {
-      // TYPE returned "none": the key is free.
     }
     const request: NewKeyRequest = {
       key: name.trim(),
@@ -77,35 +80,59 @@ export default function AddKeyDialog({
     try {
       // Confirmed overwrite: DEL first so HSETNX/LPUSH/SADD/ZADD replace
       // instead of appending to the previous key of another type.
-      if (existing) {
+      if (overwrite) {
         await ipc.deleteKey({ connectionId, db, key: name.trim() });
       }
       await ipc.createKey({ connectionId, db, request });
       onCreated();
       onClose();
     } catch (error) {
-      onNotify(errMessage(error));
+      onNotify(t("common.operationFailed", { error: errMessage(error) }));
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-[480px] rounded border border-border bg-surface p-4 text-sm text-text">
-        <h2 className="mb-3 text-base font-medium">{t("tree.addNewKey")}</h2>
-        <label className="mb-2 block">
-          <span className="mb-1 block text-xs text-muted">{t("addKey.name")}</span>
-          <input
-            className="w-full rounded border border-border bg-base px-2 py-1 outline-none"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
+    <Dialog
+      title={t("tree.addNewKey")}
+      width={480}
+      onClose={onClose}
+      footer={
+        confirmOverwrite ? (
+          <>
+            <Button variant="secondary" onClick={() => setConfirmOverwrite(false)} disabled={busy}>
+              {t("common.cancel")}
+            </Button>
+            <Button variant="danger" onClick={() => void submit(true)} disabled={busy}>
+              {t("addKey.overwriteAction")}
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button variant="secondary" onClick={onClose} disabled={busy}>
+              {t("common.cancel")}
+            </Button>
+            <Button variant="primary" onClick={() => void submit(false)} disabled={busy}>
+              {busy ? t("common.saving") : t("common.save")}
+            </Button>
+          </>
+        )
+      }
+    >
+      <div className="space-y-3">
+        {confirmOverwrite ? (
+          <div className="rounded-md border border-danger/50 bg-danger/5 p-3 text-[12px] text-text">
+            {t("addKey.existsWarning", { name: name.trim() })}
+          </div>
+        ) : null}
+        <label className="block text-[12px]">
+          <span className="mb-1 block text-muted">{t("addKey.name")}</span>
+          <TextInput value={name} onChange={(event) => setName(event.target.value)} autoFocus />
         </label>
-        <label className="mb-2 block">
-          <span className="mb-1 block text-xs text-muted">{t("addKey.type")}</span>
-          <select
-            className="w-full rounded border border-border bg-base px-2 py-1 outline-none"
+        <label className="block text-[12px]">
+          <span className="mb-1 block text-muted">{t("addKey.type")}</span>
+          <Select
             value={keyType}
             onChange={(event) => setKeyType(event.target.value as (typeof KEY_TYPES)[number])}
           >
@@ -114,51 +141,39 @@ export default function AddKeyDialog({
                 {type}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         {keyType === "hash" ? (
-          <label className="mb-2 block">
-            <span className="mb-1 block text-xs text-muted">{t("addKey.field")}</span>
-            <input
-              className="w-full rounded border border-border bg-base px-2 py-1 outline-none"
-              value={field}
-              onChange={(event) => setField(event.target.value)}
-            />
+          <label className="block text-[12px]">
+            <span className="mb-1 block text-muted">{t("addKey.field")}</span>
+            <TextInput value={field} onChange={(event) => setField(event.target.value)} />
           </label>
         ) : null}
         {keyType === "zset" ? (
-          <label className="mb-2 block">
-            <span className="mb-1 block text-xs text-muted">{t("addKey.score")}</span>
-            <input
-              className="w-full rounded border border-border bg-base px-2 py-1 outline-none"
-              value={score}
-              onChange={(event) => setScore(event.target.value)}
-            />
+          <label className="block text-[12px]">
+            <span className="mb-1 block text-muted">{t("addKey.score")}</span>
+            <TextInput value={score} onChange={(event) => setScore(event.target.value)} />
           </label>
         ) : null}
         {keyType === "list" || keyType === "set" ? (
-          <label className="mb-2 block">
-            <span className="mb-1 block text-xs text-muted">{t("addKey.members")}</span>
+          <label className="block text-[12px]">
+            <span className="mb-1 block text-muted">{t("addKey.members")}</span>
             <textarea
-              className="h-24 w-full resize-none rounded border border-border bg-base px-2 py-1 font-mono text-xs outline-none"
+              className="h-24 w-full resize-none rounded-sm border border-border bg-base px-2 py-1 font-mono text-[12px] text-text outline-none hover:border-muted/50 focus:border-highlight/60"
               value={members}
               onChange={(event) => setMembers(event.target.value)}
             />
           </label>
         ) : keyType === "stream" ? (
           <>
-            <label className="mb-2 block">
-              <span className="mb-1 block text-xs text-muted">{t("addKey.entryId")}</span>
-              <input
-                className="w-full rounded border border-border bg-base px-2 py-1 outline-none"
-                value={streamId}
-                onChange={(event) => setStreamId(event.target.value)}
-              />
+            <label className="block text-[12px]">
+              <span className="mb-1 block text-muted">{t("addKey.entryId")}</span>
+              <TextInput value={streamId} onChange={(event) => setStreamId(event.target.value)} />
             </label>
-            <label className="mb-2 block">
-              <span className="mb-1 block text-xs text-muted">{t("addKey.entry")}</span>
+            <label className="block text-[12px]">
+              <span className="mb-1 block text-muted">{t("addKey.entry")}</span>
               <textarea
-                className="h-24 w-full resize-none rounded border border-border bg-base px-2 py-1 font-mono text-xs outline-none"
+                className="h-24 w-full resize-none rounded-sm border border-border bg-base px-2 py-1 font-mono text-[12px] text-text outline-none hover:border-muted/50 focus:border-highlight/60"
                 placeholder='{"field":"value"}'
                 value={value}
                 onChange={(event) => setValue(event.target.value)}
@@ -166,34 +181,16 @@ export default function AddKeyDialog({
             </label>
           </>
         ) : (
-          <label className="mb-2 block">
-            <span className="mb-1 block text-xs text-muted">{t("common.value")}</span>
+          <label className="block text-[12px]">
+            <span className="mb-1 block text-muted">{t("common.value")}</span>
             <textarea
-              className="h-24 w-full resize-none rounded border border-border bg-base px-2 py-1 font-mono text-xs outline-none"
+              className="h-24 w-full resize-none rounded-sm border border-border bg-base px-2 py-1 font-mono text-[12px] text-text outline-none hover:border-muted/50 focus:border-highlight/60"
               value={value}
               onChange={(event) => setValue(event.target.value)}
             />
           </label>
         )}
-        <div className="mt-3 flex justify-end gap-2">
-          <button
-            type="button"
-            className="rounded border border-border px-3 py-1"
-            onClick={onClose}
-            disabled={busy}
-          >
-            {t("common.cancel")}
-          </button>
-          <button
-            type="button"
-            className="rounded border border-accent bg-accent px-3 py-1 text-base"
-            onClick={() => void submit()}
-            disabled={busy}
-          >
-            {t("common.save")}
-          </button>
-        </div>
       </div>
-    </div>
+    </Dialog>
   );
 }

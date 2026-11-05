@@ -23,11 +23,11 @@ export const en = {
   "common.error": "Error",
   "common.yes": "Yes",
   "common.no": "No",
+  "common.operationFailed": "Operation failed: {error}",
 
   // Application shell
   "app.title": "RESP.app",
   "app.tabWelcome": "Welcome",
-  "app.readonlyBadge": "Read-only",
   "app.resizeTree": "Resize tree pane",
   "app.loadConnectionsFailed": "Cannot load connections: {error}",
   "app.loadSettingsFailed": "Cannot load settings: {error}",
@@ -47,8 +47,6 @@ export const en = {
 
   // Toolbar
   "toolbar.addConnection": "Add Connection",
-  "toolbar.connections": "Connections",
-  "toolbar.toggleTree": "Toggle connection tree",
   "toolbar.log": "Log",
   "toolbar.settings": "Settings",
   "toolbar.help": "Documentation",
@@ -57,13 +55,11 @@ export const en = {
   "toolbar.import": "Import Connections",
   "toolbar.export": "Export Connections",
   "toolbar.toggleTreeView": "Toggle Tree View",
-  "toolbar.extensionServer": "Extension Server",
 
   // Tab bar
   "tabbar.closeTab": "Close {title}",
 
   // Welcome tab
-  "welcome.title": "RESP.app 1.0.0",
   "welcome.subtitle":
     "A Tauri v2 + React rebuild of the open-source RESP.app (Redis Desktop Manager).",
   "welcome.redisSupport": "Targets Redis 8.10.x; verified against Redis 8.10.1.",
@@ -155,6 +151,9 @@ export const en = {
   "chart.errors": "Total Error Replies",
   "chart.unitClients": "Clients",
   "chart.unitErrors": "Error Replies",
+  "chart.unitOps": "Ops/s",
+  "chart.unitMb": "MB",
+  "chart.unitKbps": "KB/s",
 
   // Monitor Commands
   "monitor.warningTitle": "MONITOR slows down the target server",
@@ -326,7 +325,9 @@ export const en = {
   "addKey.entry": "Entry (JSON object)",
   "addKey.nameRequired": "Key name is required",
   "addKey.membersRequired": "At least one member is required",
-  "addKey.overwrite": "Key with the same name already exists. Do you want to overwrite it?",
+  "addKey.existsWarning":
+    "A key named “{name}” already exists. Saving will delete it and create a new key with the type and data above.",
+  "addKey.overwriteAction": "Overwrite",
 
   // Connection dialog
   "conn.titleNew": "New Connection Settings",
@@ -396,6 +397,9 @@ export const en = {
   "conn.timeouts": "Timeouts & Limits",
   "conn.connectionTimeout": "Connection Timeout (sec):",
   "conn.executionTimeout": "Execution Timeout (sec):",
+  "conn.seconds": "seconds",
+  "conn.groupEndpoint": "Endpoint",
+  "conn.groupAuth": "Authentication",
   "conn.dbDiscovery": "Databases discovery limit:",
   "conn.cluster": "Cluster",
   "conn.overrideClusterHost": "Change host on cluster redirects:",
@@ -412,6 +416,8 @@ export const en = {
   "conn.resp3": "RESP3",
   "conn.testing": "Testing…",
   "conn.test": "Test Connection",
+  "conn.testSuccess": "Connection successful",
+  "conn.testFailed": "Connection failed",
   "conn.quickStart": "Quick Start Guide",
   "conn.invalid": "Invalid settings detected!",
   "conn.resetSettings": "Reset settings",
@@ -464,6 +470,7 @@ export const en = {
   "value.newName": "New name",
   "value.rowLabel": "Row {row} · {column}",
   "value.selectRow": "Select a row or cell",
+  "value.unsaved": "Unsaved changes",
   "value.displayTruncated": "Display truncated at {limit} bytes (HEX views cap at 50,000 bytes).",
   "value.limitNotify": "Value display stopped at {size} (limit {limit}).",
   "value.cannotRead": "Cannot read {key}: {error}",

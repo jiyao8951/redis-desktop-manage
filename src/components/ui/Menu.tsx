@@ -44,22 +44,22 @@ export default function Menu({
   return (
     <div
       ref={ref}
-      className={`absolute z-30 min-w-[190px] rounded-sm border border-border bg-base py-1 text-text shadow-xl ${className}`}
+      className={`absolute z-30 max-h-[70vh] min-w-[200px] max-w-[340px] overflow-y-auto rounded-md border border-border bg-base p-1 text-text shadow-xl ${className}`}
       role="menu"
       onClick={(e) => e.stopPropagation()}
     >
       {items.map((item) => (
         <div key={item.key}>
-          {item.separatorBefore ? <div className="my-1 h-px bg-border" /> : null}
+          {item.separatorBefore ? <div className="mx-1 my-1 h-px bg-border" /> : null}
           <button
             type="button"
             role="menuitem"
             disabled={item.disabled}
-            className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] ${
+            className={`flex w-full items-center gap-2.5 rounded-sm px-2.5 py-[7px] text-left text-[12px] leading-4 transition-colors ${
               item.disabled
                 ? "cursor-default text-muted"
                 : item.danger
-                  ? "hover:bg-surface hover:text-danger"
+                  ? "hover:bg-danger/10 hover:text-danger"
                   : "hover:bg-surface"
             }`}
             onClick={() => {
@@ -69,12 +69,16 @@ export default function Menu({
             }}
           >
             {item.icon ? (
-              <Icon name={item.icon} className="shrink-0 opacity-70" />
+              <Icon name={item.icon} className="shrink-0 opacity-80" />
             ) : (
               <span className="w-[14px] shrink-0" />
             )}
             <span className="flex-1 truncate">{item.label}</span>
-            {item.shortcut ? <span className="text-[11px] text-muted">{item.shortcut}</span> : null}
+            {item.shortcut ? (
+              <span className="ml-2 shrink-0 text-[11px] tracking-wide text-muted">
+                {item.shortcut}
+              </span>
+            ) : null}
           </button>
         </div>
       ))}

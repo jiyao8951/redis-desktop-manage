@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
+import Button from "../../components/ui/Button";
 import { Icon } from "../../components/ui/Icon";
 import { useT } from "../../lib/i18n";
 import type { ValueCell } from "../../lib/types";
@@ -69,10 +70,18 @@ export default function ValueEditorPane({
         fill ? "min-h-0 flex-1" : "h-48 shrink-0"
       }`}
     >
-      <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
-        <span className="text-xs text-muted">{label}</span>
+      <div className="flex items-center gap-2 border-b border-border bg-surface/50 px-3 py-1.5">
+        <span className="min-w-0 truncate text-[11px] font-medium text-text" title={label}>
+          {label}
+        </span>
+        {dirty ? (
+          <span className="flex shrink-0 items-center gap-1 text-[10px] text-accent">
+            <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" />
+            {t("value.unsaved")}
+          </span>
+        ) : null}
         <select
-          className="h-7 rounded border border-border bg-base px-2 text-xs text-text outline-none"
+          className="ml-auto h-7 rounded-sm border border-border bg-base px-1.5 text-[11px] text-text outline-none hover:border-muted/50 focus:border-highlight/60"
           value={formatter}
           onChange={(event) => onFormatter(event.target.value as FormatterId)}
         >
@@ -83,27 +92,27 @@ export default function ValueEditorPane({
           ))}
         </select>
         {editing ? (
-          <button
-            type="button"
-            className="flex items-center gap-1 rounded border border-accent bg-accent px-2 py-0.5 text-xs text-base disabled:opacity-40"
+          <Button
+            variant="primary"
             disabled={saving || !dirty}
             onClick={() => onSave(draft)}
           >
             {saving ? t("common.saving") : t("common.save")}
-          </button>
+          </Button>
         ) : null}
-        <button
-          type="button"
-          className="ml-auto flex items-center gap-1 rounded border border-border px-2 py-0.5 text-xs text-text disabled:opacity-40"
+        <Button
+          variant="secondary"
           disabled={!copyText}
           onClick={() => copyText && onCopy(copyText)}
         >
           <Icon name="copy" className="h-3.5 w-3.5" />
           {t("common.copy")}
-        </button>
+        </Button>
       </div>
       <textarea
-        className="min-h-0 flex-1 resize-none bg-base p-2 font-mono text-xs text-text outline-none"
+        className={`min-h-0 flex-1 resize-none bg-base p-2 font-mono text-xs text-text outline-none focus:bg-base ${
+          editing ? "" : "text-muted/90"
+        }`}
         style={{
           fontFamily: fontFamily || undefined,
           fontSize: fontSize ? `${fontSize}px` : undefined,

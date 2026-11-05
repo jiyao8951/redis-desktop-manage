@@ -323,6 +323,10 @@ pub async fn read_value_page(
         }
         "hash" | "set" => {
             let load_command = if key_type == "hash" { "HSCAN" } else { "SSCAN" };
+            // An encoded cursor that carries leftover rows may also carry the
+            // server cursor "0". Without this flag the drained request would
+            // treat "0" as a fresh scan and replay every field from the start.
+            let first_request = cursor.is_empty() || cursor == "0";
             let mut state = decode_scan_cursor(cursor);
             let mut rows: Vec<ValueRow> = Vec::new();
             let mut iterations = 0u32;
@@ -341,7 +345,9 @@ pub async fn read_value_page(
                         });
                     }
                 }
-                if rows.len() >= count as usize || (state.scan == "0" && iterations > 0) {
+                if rows.len() >= count as usize
+                    || (state.scan == "0" && (iterations > 0 || !first_request))
+                {
                     break;
                 }
                 iterations += 1;
@@ -522,8 +528,11 @@ pub async fn read_value_page(
                     }
                     let value = serde_json::Value::Object(object);
 
+                    // Count emitted rows instead of the source index: the
+                    // repeated cursor entry is skipped, so using `index` would
+                    // leave a gap in the row numbering.
                     rows.push(ValueRow {
-                        row: start + index as u64,
+                        row: start + rows.len() as u64,
                         columns: vec![
                             ValueCell {
                                 encoding: "utf8".into(),

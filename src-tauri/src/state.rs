@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
@@ -23,6 +24,9 @@ pub struct AppState {
     /// 24 chunked reads opened another SQLite round trip. Entries are dropped
     /// when a connection is saved, deleted, duplicated or imported.
     configs: Arc<AsyncMutex<HashMap<String, ConnectionConfig>>>,
+    /// Guards the shutdown path so a second CloseRequested cannot release the
+    /// same connections twice.
+    shutting_down: AtomicBool,
 }
 
 impl AppState {
@@ -33,7 +37,24 @@ impl AppState {
             live: LiveRegistry::default(),
             monitor: MonitorRegistry::default(),
             configs: Arc::new(AsyncMutex::new(HashMap::new())),
+            shutting_down: AtomicBool::new(false),
         }
+    }
+
+    /// Returns `true` only for the first caller, so the window-close handler
+    /// can run the release pass exactly once even if the event fires twice.
+    pub fn begin_shutdown(&self) -> bool {
+        !self.shutting_down.swap(true, Ordering::SeqCst)
+    }
+
+    /// Releases every connection-related resource held by this process:
+    /// MONITOR streams, Live Update subscriptions, pooled Redis connections
+    /// and the in-memory config cache (which keeps credentials).
+    pub async fn shutdown(&self) {
+        self.monitor.stop_all().await;
+        self.live.stop_all().await;
+        self.pool.invalidate_all().await;
+        self.invalidate_all_configs().await;
     }
 
     /// Reads a connection config, using the cache when possible. Concurrent
@@ -120,6 +141,18 @@ mod tests {
     #[tokio::test]
     async fn unknown_connection_is_an_error_not_a_cache_entry() {
         let state = state_with_database();
+        assert!(state.connection_config("missing").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn shutdown_runs_once() {
+        let state = state_with_database();
+        assert!(state.begin_shutdown());
+        // A second CloseRequested must not release the same handles again.
+        assert!(!state.begin_shutdown());
+
+        state.shutdown().await;
+        // The cache is cleared, so the next read repopulates from SQLite.
         assert!(state.connection_config("missing").await.is_err());
     }
 }

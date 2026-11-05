@@ -24,7 +24,7 @@ import { dbKeyOf, type DbView, type ServerView, type TreeRowData } from "./rowTy
 import AddKeyDialog from "../value/AddKeyDialog";
 import { BulkTtlDialog, CopyKeysDialog } from "./BulkDialogs";
 
-const ROW_HEIGHT = 28;
+const ROW_HEIGHT = 30;
 /** Upper bounds for the two caches that otherwise grow with every scan page. */
 const META_CACHE_LIMIT = 5000;
 const NS_CACHE_LIMIT = 200;
@@ -74,6 +74,7 @@ export default function ConnectionTree({
   groups,
   settings,
   revision,
+  onAddConnection,
   onEditConnection,
   onOpenServerTab,
   onOpenKey,
@@ -90,6 +91,7 @@ export default function ConnectionTree({
   settings: Settings;
   /** Incremented when connection configs change; resets cached tree data. */
   revision: number;
+  onAddConnection: () => void;
   onEditConnection: (id: string) => void;
   onOpenServerTab: (connection: ConnectionSummary) => void;
   onOpenKey: (connectionId: string, db: number, key: string) => void;
@@ -463,7 +465,7 @@ export default function ConnectionTree({
         }));
       } catch (e) {
         updateDb(row.connectionId, row.dbIndex, (d) => ({ ...d, loadingMore: false }));
-        onNotify(errMessage(e));
+        onNotify(t("common.operationFailed", { error: errMessage(e) }));
       }
       return;
     }
@@ -506,7 +508,7 @@ export default function ConnectionTree({
           [row.namespace as string]: { ...ns, loading: false },
         },
       }));
-      onNotify(errMessage(e));
+      onNotify(t("common.operationFailed", { error: errMessage(e) }));
     }
   };
 
@@ -563,7 +565,7 @@ export default function ConnectionTree({
           },
         },
       }));
-      onNotify(errMessage(e));
+      onNotify(t("common.operationFailed", { error: errMessage(e) }));
     }
   };
 
@@ -842,7 +844,7 @@ export default function ConnectionTree({
       setLiveDbs((prev) => new Set(prev).add(key));
       onNotify(t("tree.liveEnabled", { db: db.index }));
     } catch (e) {
-      onNotify(errMessage(e));
+      onNotify(t("common.operationFailed", { error: errMessage(e) }));
       onLog(t("tree.liveListenerFailed", { error: errMessage(e) }), "error");
     }
   };
@@ -857,7 +859,7 @@ export default function ConnectionTree({
     try {
       await ipc.closeConnection(connection.id);
     } catch (e) {
-      onNotify(errMessage(e));
+      onNotify(t("common.operationFailed", { error: errMessage(e) }));
       onLog(t("tree.closeConnectionFailed", { error: errMessage(e) }), "error");
     }
 
@@ -911,7 +913,7 @@ export default function ConnectionTree({
       });
       await loadDb(row.connectionId, row.dbIndex, true);
     } catch (e) {
-      onNotify(errMessage(e));
+      onNotify(t("common.operationFailed", { error: errMessage(e) }));
     }
   };
 
@@ -932,7 +934,7 @@ export default function ConnectionTree({
       onNotify(t("tree.deletedMatching", { count: deleted, pattern }));
       await loadDb(connectionId, dbIndex, true);
     } catch (e) {
-      onNotify(errMessage(e));
+      onNotify(t("common.operationFailed", { error: errMessage(e) }));
     }
   };
 
@@ -943,7 +945,7 @@ export default function ConnectionTree({
       onNotify(t("tree.flushed", { db: dbIndex }));
       await loadDb(connectionId, dbIndex, true);
     } catch (e) {
-      onNotify(errMessage(e));
+      onNotify(t("common.operationFailed", { error: errMessage(e) }));
     }
   };
 
@@ -958,7 +960,7 @@ export default function ConnectionTree({
       onNotify(t("tree.moved", { name: connection.name, group: target }));
       onConnectionsChanged();
     } catch (e) {
-      onNotify(errMessage(e));
+      onNotify(t("common.operationFailed", { error: errMessage(e) }));
     }
   };
 
@@ -990,7 +992,7 @@ export default function ConnectionTree({
       {
         key: "close",
         label: t("tree.closeConnection"),
-        icon: "unload",
+        icon: "x",
         onClick: () => void closeConnection(connection),
       },
       {
@@ -998,6 +1000,7 @@ export default function ConnectionTree({
         label: t("tree.editConnection"),
         shortcut: "Ctrl+E",
         icon: "edit",
+        separatorBefore: true,
         onClick: () => onEditConnection(connection.id),
       },
       {
@@ -1011,7 +1014,7 @@ export default function ConnectionTree({
               onNotify(t("tree.created", { name: copy.name }));
               onConnectionsChanged();
             } catch (e) {
-              onNotify(errMessage(e));
+              onNotify(t("common.operationFailed", { error: errMessage(e) }));
             }
           })();
         },
@@ -1020,13 +1023,14 @@ export default function ConnectionTree({
         key: "console",
         label: t("server.view.console"),
         shortcut: "Ctrl+T",
-        icon: "log",
+        icon: "terminal",
+        separatorBefore: true,
         onClick: () => onOpenConsole(connection, 0),
       },
       {
         key: "server-info",
         label: t("server.view.info"),
-        icon: "database",
+        icon: "server",
         onClick: () => onOpenServerActions(connection, "info"),
       },
       {
@@ -1050,19 +1054,20 @@ export default function ConnectionTree({
       {
         key: "server-stats",
         label: t("server.view.stats"),
-        icon: "database",
+        icon: "activity",
         onClick: () => onOpenServerActions(connection, "stats"),
       },
       {
         key: "memory",
         label: t("tree.analyzeMemory"),
-        icon: "eye",
+        icon: "database",
         onClick: () => onOpenServerActions(connection, "memory"),
       },
       {
         key: "copy",
         label: t("tree.copyHost"),
         icon: "copy",
+        separatorBefore: true,
         onClick: () => copyText(`${connection.host}:${connection.port}`),
       },
       ...(connection.groupId
@@ -1080,7 +1085,8 @@ export default function ConnectionTree({
             {
               key: "stop-live",
               label: t("tree.stopLive", { count: liveCount }),
-              icon: "unload",
+              icon: "activity",
+              separatorBefore: true,
               onClick: () => void stopServerLive(connection.id),
             },
           ] as MenuItem[])
@@ -1139,20 +1145,21 @@ export default function ConnectionTree({
         key: "live",
         label: live ? t("tree.disableLive") : t("tree.enableLive"),
         shortcut: "Ctrl+L",
-        icon: "refresh",
+        icon: "activity",
         onClick: () => void toggleLive(connection, db),
       },
       {
         key: "console",
         label: t("server.view.console"),
         shortcut: "Ctrl+T",
-        icon: "log",
+        icon: "terminal",
+        separatorBefore: true,
         onClick: () => onOpenConsole(connection, db.index),
       },
       {
         key: "memory",
         label: t("tree.analyzeMemory"),
-        icon: "eye",
+        icon: "database",
         onClick: () => onOpenServerActions(connection, "memory"),
       },
       {
@@ -1237,7 +1244,7 @@ export default function ConnectionTree({
       {
         key: "memory",
         label: t("tree.analyzeMemory"),
-        icon: "eye",
+        icon: "database",
         onClick: () => onOpenServerActions(connection, "memory"),
       },
       {
@@ -1274,7 +1281,7 @@ export default function ConnectionTree({
     {
       key: "delete",
       label: t("tree.deleteKey"),
-      shortcut: "D",
+      shortcut: "Del",
       icon: "trash",
       danger: true,
       separatorBefore: true,
@@ -1444,7 +1451,7 @@ export default function ConnectionTree({
       else if (selected.kind === "node" && selected.node.kind === "namespace") {
         void loadNamespace(selected.connectionId, selected.dbIndex, selected.node.full);
       }
-    } else if (event.ctrlKey && event.key.toLowerCase() === "e") {
+    } else if (event.ctrlKey && !event.shiftKey && event.key.toLowerCase() === "e") {
       if (selected.kind === "server") onEditConnection(selected.connection.id);
     } else if (event.ctrlKey && event.key.toLowerCase() === "u") {
       if (selected.kind === "server") {
@@ -1484,7 +1491,7 @@ export default function ConnectionTree({
       if (connection) onOpenConsole(connection, context?.dbIndex ?? 0);
     } else if (event.ctrlKey && event.key.toLowerCase() === "c") {
       if (selected.kind === "node") copyText(selected.node.full);
-    } else if (event.key === "Delete" || event.key.toLowerCase() === "d") {
+    } else if (event.key === "Delete") {
       if (selected.kind === "node" && selected.node.kind === "key") {
         event.preventDefault();
         void deleteKeyRow(selected);
@@ -1501,7 +1508,7 @@ export default function ConnectionTree({
       setGroupDialog(null);
       onGroupsChanged();
     } catch (e) {
-      onNotify(errMessage(e));
+      onNotify(t("common.operationFailed", { error: errMessage(e) }));
     }
   };
 
@@ -1517,7 +1524,7 @@ export default function ConnectionTree({
         onGroupsChanged();
       }
     } catch (e) {
-      onNotify(errMessage(e));
+      onNotify(t("common.operationFailed", { error: errMessage(e) }));
     } finally {
       setConfirmDelete(null);
     }
@@ -1558,7 +1565,16 @@ export default function ConnectionTree({
         }}
       >
         {rows.length === 0 ? (
-          <p className="p-4 text-[12px] text-muted">{t("tree.noConnections")}</p>
+          <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+            <span className="text-muted">
+              <Icon name="database" />
+            </span>
+            <p className="text-[12px] text-muted">{t("tree.noConnections")}</p>
+            <Button variant="primary" onClick={onAddConnection}>
+              <Icon name="plus" />
+              {t("toolbar.connect")}
+            </Button>
+          </div>
         ) : (
           <div className="relative" style={{ height: totalHeight }}>
             {windowRows.map((row, index) => {

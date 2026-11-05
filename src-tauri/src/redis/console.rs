@@ -22,9 +22,23 @@ const STREAMING_COMMANDS: &[&str] = &[
     "SUNSUBSCRIBE",
 ];
 
-/// Stateful commands would leak MULTI/WATCH state into the shared pool used by
-/// the tree and value tabs, so they are rejected instead of executed unsafely.
-const STATEFUL_COMMANDS: &[&str] = &["MULTI", "EXEC", "DISCARD", "WATCH", "UNWATCH"];
+/// Stateful commands would leak transaction, protocol, authentication or
+/// connection state into the shared pool used by the tree and value tabs, so
+/// they are rejected instead of executed unsafely.
+const STATEFUL_COMMANDS: &[&str] = &[
+    "MULTI",
+    "EXEC",
+    "DISCARD",
+    "WATCH",
+    "UNWATCH",
+    "HELLO",
+    "RESET",
+    "AUTH",
+    "QUIT",
+    "READONLY",
+    "READWRITE",
+    "ASKING",
+];
 
 /// redis-cli style tokenizer: whitespace separates arguments, single and
 /// double quotes group them, and `\n`, `\r`, `\t`, `\xHH` escapes work inside
@@ -261,9 +275,29 @@ pub async fn execute_console(
             db,
             format!(
                 "{name} needs a per-tab connection. The console reuses the shared connection \
-                 pool in this stage, so transactions and WATCH are not executed."
+                 pool in this stage, so transactions and connection-level state changes are not \
+                 executed."
             ),
         ));
+    }
+
+    // CLIENT REPLY OFF/SKIP suppresses replies and CLIENT TRACKING/CACHING
+    // toggles invalidation state on the shared connection; both would break
+    // unrelated tabs.
+    if name == "CLIENT" {
+        let subcommand = args.get(1).map(|value| value.to_ascii_uppercase());
+        if matches!(
+            subcommand.as_deref(),
+            Some("REPLY") | Some("TRACKING") | Some("CACHING")
+        ) {
+            return Ok(rejected(
+                trimmed,
+                db,
+                "CLIENT REPLY/TRACKING/CACHING changes the shared connection state and is not \
+                 executed in the console."
+                    .to_string(),
+            ));
+        }
     }
 
     // SELECT must not change the database of the shared pooled connection:

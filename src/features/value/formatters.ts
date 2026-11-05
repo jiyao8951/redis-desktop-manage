@@ -49,6 +49,21 @@ function tryPrettyJson(text: string): string | null {
   }
 }
 
+/** Decodes text that looks like base64; returns null when it is not base64. */
+function tryDecodeBase64(text: string): Uint8Array | null {
+  const trimmed = text.trim();
+  if (!trimmed || trimmed.length % 4 !== 0) return null;
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(trimmed)) return null;
+  try {
+    const binary = atob(trimmed);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  } catch {
+    return null;
+  }
+}
+
 export function printable(text: string, limit: number): { text: string; truncated: boolean } {
   if (text.length <= limit) return { text, truncated: false };
   return { text: text.slice(0, limit), truncated: true };
@@ -110,8 +125,12 @@ export function formatCell(
       return hexBytes(bytes, Math.min(limit, 50_000));
     case "hex-table":
       return hexTable(bytes, Math.min(limit, 50_000));
-    case "base64-text":
-      return printable(raw, limit);
+    case "base64-text": {
+      const decoded = tryDecodeBase64(raw);
+      if (!decoded) return printable(raw, limit);
+      if (isBinary(decoded)) return hexBytes(decoded, Math.min(limit, 50_000));
+      return printable(textOf(decoded), limit);
+    }
     case "auto":
     default: {
       if (binary) return hexBytes(bytes, Math.min(limit, 50_000));

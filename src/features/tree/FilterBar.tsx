@@ -75,7 +75,7 @@ export default function FilterBar({
         title={t("filter.help")}
         onClick={() => void openUrl("https://docs.resp.app/en/latest/keyspaces/")}
       >
-        <Icon name="search" />
+        <Icon name="help" />
       </button>
 
       {busy ? <span className="text-[11px] text-muted">…</span> : null}

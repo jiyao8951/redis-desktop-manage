@@ -176,6 +176,7 @@ export default function ValueTab({
   const sizeLimit = Math.max(1, settings.valueSizeLimit);
 
   const seq = useRef(0);
+  const lastKeyRef = useRef(keyName);
   const accRef = useRef<ValueRow[]>([]);
   const cursorRef = useRef("0");
   const doneRef = useRef(false);
@@ -396,7 +397,12 @@ export default function ValueTab({
     setRowsLoading(false);
     setLoadingInfo(true);
     setError(null);
-    setInfo(null);
+    // Keep the previous header info while reloading the same key so the top
+    // bar does not flash empty; drop it only when switching to another key.
+    if (lastKeyRef.current !== keyName) {
+      lastKeyRef.current = keyName;
+      setInfo(null);
+    }
     setFilter("");
     setSelected(null);
     setPage(0);
@@ -439,6 +445,19 @@ export default function ValueTab({
 
   const meta = info;
   const isCursorMode = meta ? cursorPaged(meta.keyType) : false;
+
+  // Scan cursors can embed echoed payloads; show only the scan position.
+  const cursorLabel = useMemo(() => {
+    try {
+      const parsed = JSON.parse(cursor) as { scan?: unknown };
+      if (parsed && (typeof parsed.scan === "string" || typeof parsed.scan === "number")) {
+        return String(parsed.scan);
+      }
+    } catch {
+      // Cursor is not structured JSON; fall back to a clipped string.
+    }
+    return cursor === "0" ? cursor : cursor.length > 24 ? `${cursor.slice(0, 24)}…` : cursor;
+  }, [cursor]);
 
   // String view: decode/format once per byte snapshot, not on every keystroke.
   const stringCell = useMemo(() => cellFromBytes(bytes), [bytes]);
@@ -753,63 +772,72 @@ export default function ValueTab({
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-base">
-      <header className="flex items-center gap-3 border-b border-border px-3 py-2">
-        <span className="rounded border border-border px-2 py-0.5 font-mono text-xs uppercase text-accent">
+      <header className="flex items-center gap-2 border-b border-border px-3 py-2">
+        <span className="shrink-0 rounded-sm border border-accent/40 bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase text-accent">
           {meta?.keyType ?? "…"}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="truncate font-mono text-sm text-text" title={keyName}>
+          <div className="truncate font-mono text-[13px] font-medium text-text" title={keyName}>
             {keyName}
           </div>
-          <div className="text-xs text-muted">
-            {connectionName} · db{db}
-            {meta ? ` · TTL ${humanTtl(meta.ttl, t("common.noExpiry"), t("common.missing"))}` : ""}
-            {meta?.length !== null && meta ? ` · ${t("value.items", { count: meta.length })}` : ""}
-            {meta?.encoding ? ` · ${meta.encoding}` : ""}
-            {meta?.memoryBytes !== null && meta ? ` · ${humanBytes(meta.memoryBytes)}` : ""}
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted">
+            <span>
+              {connectionName} · db{db}
+            </span>
+            {meta ? (
+              <span className="rounded-sm border border-border px-1.5 py-[1px] font-mono text-[10px]">
+                TTL {humanTtl(meta.ttl, t("common.noExpiry"), t("common.missing"))}
+              </span>
+            ) : null}
+            {meta?.length !== null && meta ? (
+              <span className="rounded-sm border border-border px-1.5 py-[1px] font-mono text-[10px]">
+                {t("value.items", { count: meta.length })}
+              </span>
+            ) : null}
+            {meta?.encoding ? (
+              <span className="rounded-sm border border-border px-1.5 py-[1px] font-mono text-[10px]">
+                {meta.encoding}
+              </span>
+            ) : null}
+            {meta?.memoryBytes !== null && meta ? (
+              <span className="rounded-sm border border-border px-1.5 py-[1px] font-mono text-[10px]">
+                {humanBytes(meta.memoryBytes)}
+              </span>
+            ) : null}
           </div>
         </div>
-        <button
-          type="button"
-          className="flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-text"
-          onClick={() => {
-            setTtlValue(meta && meta.ttl > 0 ? String(meta.ttl) : "");
-            setTtlOpen(true);
-          }}
-          disabled={!meta}
-        >
-          TTL
-        </button>
-        <button
-          type="button"
-          className="flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-text"
-          onClick={() => {
-            setRenameValue(keyName);
-            setRenameOpen(true);
-          }}
-          disabled={!meta}
-        >
-          <Icon name="edit" className="h-3.5 w-3.5" />
-          {t("common.rename")}
-        </button>
-        <button
-          type="button"
-          className="flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-text"
-          onClick={() => void reload()}
-          disabled={loadingInfo}
-        >
-          <Icon name="refresh" className="h-3.5 w-3.5" />
-          {t("common.reload")}
-        </button>
-        <button
-          type="button"
-          className="flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-danger"
-          onClick={() => void deleteKey()}
-          disabled={!meta}
-        >
-          <Icon name="trash" className="h-3.5 w-3.5" />
-          {t("common.delete")}
-        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setTtlValue(meta && meta.ttl > 0 ? String(meta.ttl) : "");
+              setTtlOpen(true);
+            }}
+            disabled={!meta}
+          >
+            TTL
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setRenameValue(keyName);
+              setRenameOpen(true);
+            }}
+            disabled={!meta}
+          >
+            <Icon name="edit" className="h-3.5 w-3.5" />
+            {t("common.rename")}
+          </Button>
+          <Button variant="ghost" onClick={() => void reload()} disabled={loadingInfo}>
+            <Icon name="refresh" className="h-3.5 w-3.5" />
+            {t("common.reload")}
+          </Button>
+          <span className="mx-0.5 h-4 w-px bg-border" aria-hidden="true" />
+          <Button variant="danger" onClick={() => void deleteKey()} disabled={!meta}>
+            <Icon name="trash" className="h-3.5 w-3.5" />
+            {t("common.delete")}
+          </Button>
+        </div>
       </header>
 
       {error ? (
@@ -910,9 +938,15 @@ export default function ValueTab({
               <span>{t("value.newestFirst")}</span>
             )}
             {isCursorMode ? (
-              <span className="ml-auto">
-                {t("value.cursorStatus", {
+              <span
+                className="ml-auto shrink-0 truncate text-[11px] text-muted"
+                title={t("value.cursorStatus", {
                   cursor,
+                  state: done ? t("value.exhausted") : t("value.moreAvailable"),
+                })}
+              >
+                {t("value.cursorStatus", {
+                  cursor: cursorLabel,
                   state: done ? t("value.exhausted") : t("value.moreAvailable"),
                 })}
               </span>

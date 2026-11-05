@@ -20,10 +20,10 @@ export const zhCN = {
   "common.error": "错误",
   "common.yes": "是",
   "common.no": "否",
+  "common.operationFailed": "操作失败：{error}",
 
   "app.title": "RESP.app",
   "app.tabWelcome": "欢迎",
-  "app.readonlyBadge": "只读",
   "app.resizeTree": "调整连接树宽度",
   "app.loadConnectionsFailed": "无法加载连接：{error}",
   "app.loadSettingsFailed": "无法加载设置：{error}",
@@ -42,8 +42,6 @@ export const zhCN = {
   "app.serverActionsTab": "服务器操作：{name}",
 
   "toolbar.addConnection": "添加连接",
-  "toolbar.connections": "连接",
-  "toolbar.toggleTree": "显示/隐藏连接树",
   "toolbar.log": "日志",
   "toolbar.settings": "设置",
   "toolbar.help": "文档",
@@ -52,11 +50,9 @@ export const zhCN = {
   "toolbar.import": "导入连接",
   "toolbar.export": "导出连接",
   "toolbar.toggleTreeView": "显示/隐藏连接树",
-  "toolbar.extensionServer": "扩展服务",
 
   "tabbar.closeTab": "关闭 {title}",
 
-  "welcome.title": "RESP.app 1.0.0",
   "welcome.subtitle": "基于开源版 RESP.app（Redis Desktop Manager）的 Tauri v2 + React 重构版本。",
   "welcome.redisSupport": "支持 Redis 8.10.x，已针对 Redis 8.10.1 验证。",
   "welcome.featuresTitle": "当前版本已具备的能力",
@@ -141,6 +137,9 @@ export const zhCN = {
   "chart.errors": "错误回复总数",
   "chart.unitClients": "客户端",
   "chart.unitErrors": "错误回复",
+  "chart.unitOps": "次/秒",
+  "chart.unitMb": "MB",
+  "chart.unitKbps": "KB/s",
 
   "monitor.warningTitle": "MONITOR 会拖慢目标服务器",
   "monitor.warningBody":
@@ -299,7 +298,9 @@ export const zhCN = {
   "addKey.entry": "条目（JSON 对象）",
   "addKey.nameRequired": "键名不能为空",
   "addKey.membersRequired": "至少需要一个成员",
-  "addKey.overwrite": "已存在同名键，是否覆盖？",
+  "addKey.existsWarning":
+    "已存在名为“{name}”的键。保存将删除该键，并按上方的类型与数据重新创建。",
+  "addKey.overwriteAction": "覆盖",
 
   "conn.titleNew": "新建连接设置",
   "conn.titleEdit": "编辑连接设置 {name}",
@@ -368,6 +369,9 @@ export const zhCN = {
   "conn.timeouts": "超时与限制",
   "conn.connectionTimeout": "连接超时（秒）：",
   "conn.executionTimeout": "执行超时（秒）：",
+  "conn.seconds": "秒",
+  "conn.groupEndpoint": "连接地址",
+  "conn.groupAuth": "认证",
   "conn.dbDiscovery": "数据库发现上限：",
   "conn.cluster": "集群",
   "conn.overrideClusterHost": "集群重定向时更换主机：",
@@ -384,6 +388,8 @@ export const zhCN = {
   "conn.resp3": "RESP3",
   "conn.testing": "测试中…",
   "conn.test": "测试连接",
+  "conn.testSuccess": "连接成功",
+  "conn.testFailed": "连接失败",
   "conn.quickStart": "快速开始指南",
   "conn.invalid": "检测到无效设置！",
   "conn.resetSettings": "重置设置",
@@ -435,6 +441,7 @@ export const zhCN = {
   "value.newName": "新名称",
   "value.rowLabel": "第 {row} 行 · {column}",
   "value.selectRow": "选择一个行或单元格",
+  "value.unsaved": "有未保存的修改",
   "value.displayTruncated": "显示内容已在 {limit} 字节处截断（HEX 视图上限为 50,000 字节）。",
   "value.limitNotify": "值显示在 {size} 处停止（上限 {limit}）。",
   "value.cannotRead": "无法读取 {key}：{error}",

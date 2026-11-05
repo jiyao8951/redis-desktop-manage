@@ -31,6 +31,20 @@ pub fn run() {
             app.manage(state::AppState::new(connection));
             Ok(())
         })
+        // There is no tray icon: closing the main window ends the app. Release
+        // the background Redis resources first so no socket or task outlives
+        // the window and the process can exit on its own.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                if let Some(app_state) = window.app_handle().try_state::<state::AppState>() {
+                    if app_state.begin_shutdown() {
+                        tauri::async_runtime::block_on(app_state.shutdown());
+                        #[cfg(debug_assertions)]
+                        eprintln!("RESP.app: released Redis connections and subscriptions");
+                    }
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             commands::list_connections,
             commands::get_connection,

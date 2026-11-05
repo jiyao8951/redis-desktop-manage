@@ -98,7 +98,7 @@ export default function TreeRow({
   const t = useT();
   const [menuOpen, setMenuOpen] = useState(false);
   const [dropActive, setDropActive] = useState(false);
-  const indent = 6 + row.depth * 14;
+  const indent = 8 + row.depth * 14;
 
   if (row.kind === "filter") {
     return (
@@ -153,7 +153,7 @@ export default function TreeRow({
         {isNs ? (
           <button
             type="button"
-            className="shrink-0 rounded-sm p-0.5 hover:bg-black/10"
+            className={`shrink-0 rounded-sm p-0.5 ${selected ? "hover:bg-white/15" : "hover:bg-black/10"}`}
             onClick={(e) => {
               e.stopPropagation();
               onToggle(row);
@@ -180,8 +180,10 @@ export default function TreeRow({
         {menuItems.length ? (
           <button
             type="button"
-            className={`rounded-sm px-1 text-muted hover:bg-black/10 hover:text-text ${
-              selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+            className={`rounded-sm p-1 transition-colors ${
+              selected
+                ? "text-white/80 hover:bg-white/15 hover:text-white"
+                : "text-muted opacity-0 hover:bg-black/10 hover:text-text group-hover:opacity-100"
             }`}
             onClick={(e) => {
               e.stopPropagation();
@@ -189,11 +191,11 @@ export default function TreeRow({
             }}
             aria-label={t("tree.actions")}
           >
-            ⋯
+            <Icon name="more" />
           </button>
         ) : null}
         {menuOpen ? (
-          <Menu className="right-1 top-6" items={menuItems} onClose={() => setMenuOpen(false)} />
+          <Menu className="right-1 top-[26px]" items={menuItems} onClose={() => setMenuOpen(false)} />
         ) : null}
       </div>
     );
@@ -212,7 +214,7 @@ export default function TreeRow({
       >
         <button
           type="button"
-          className="shrink-0 rounded-sm p-0.5 hover:bg-black/10"
+          className={`shrink-0 rounded-sm p-0.5 ${selected ? "hover:bg-white/15" : "hover:bg-black/10"}`}
           onClick={(e) => {
             e.stopPropagation();
             onToggle(row);
@@ -231,8 +233,10 @@ export default function TreeRow({
         {menuItems.length ? (
           <button
             type="button"
-            className={`rounded-sm px-1 text-muted hover:bg-black/10 hover:text-text ${
-              selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+            className={`rounded-sm p-1 transition-colors ${
+              selected
+                ? "text-white/80 hover:bg-white/15 hover:text-white"
+                : "text-muted opacity-0 hover:bg-black/10 hover:text-text group-hover:opacity-100"
             }`}
             onClick={(e) => {
               e.stopPropagation();
@@ -240,11 +244,11 @@ export default function TreeRow({
             }}
             aria-label={t("tree.actions")}
           >
-            ⋯
+            <Icon name="more" />
           </button>
         ) : null}
         {menuOpen ? (
-          <Menu className="right-1 top-6" items={menuItems} onClose={() => setMenuOpen(false)} />
+          <Menu className="right-1 top-[26px]" items={menuItems} onClose={() => setMenuOpen(false)} />
         ) : null}
       </div>
     );
@@ -269,7 +273,7 @@ export default function TreeRow({
       >
         <button
           type="button"
-          className="shrink-0 rounded-sm p-0.5 hover:bg-black/10"
+          className={`shrink-0 rounded-sm p-0.5 ${selected ? "hover:bg-white/15" : "hover:bg-black/10"}`}
           onClick={(e) => {
             e.stopPropagation();
             onToggle(row);
@@ -282,14 +286,24 @@ export default function TreeRow({
           <Icon name="database" />
         </span>
         <span className="min-w-0 flex-1 truncate">{row.connection.name}</span>
+        <span
+          className={`shrink-0 truncate text-[10.5px] font-normal ${
+            selected ? "text-white/75" : "text-muted"
+          }`}
+          style={{ maxWidth: "45%" }}
+        >
+          {row.connection.host}:{row.connection.port}
+        </span>
         {view.error ? (
           <span className="text-[10px] font-normal text-danger">{t("tree.errorBadge")}</span>
         ) : null}
         {menuItems.length ? (
           <button
             type="button"
-            className={`rounded-sm px-1 text-muted hover:bg-black/10 hover:text-text ${
-              selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+            className={`rounded-sm p-1 transition-colors ${
+              selected
+                ? "text-white/80 hover:bg-white/15 hover:text-white"
+                : "text-muted opacity-0 hover:bg-black/10 hover:text-text group-hover:opacity-100"
             }`}
             onClick={(e) => {
               e.stopPropagation();
@@ -297,11 +311,11 @@ export default function TreeRow({
             }}
             aria-label={t("tree.actions")}
           >
-            ⋯
+            <Icon name="more" />
           </button>
         ) : null}
         {menuOpen ? (
-          <Menu className="right-1 top-6" items={menuItems} onClose={() => setMenuOpen(false)} />
+          <Menu className="right-1 top-[26px]" items={menuItems} onClose={() => setMenuOpen(false)} />
         ) : null}
       </div>
     );

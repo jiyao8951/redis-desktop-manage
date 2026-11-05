@@ -24,6 +24,84 @@ export const ChevronRight = () => (
   </svg>
 );
 
+export const ChevronLeft = () => (
+  <svg {...base} width={S} height={S}>
+    <path d="M15 6l-6 6 6 6" />
+  </svg>
+);
+
+export const More = () => (
+  <svg {...base} width={S} height={S}>
+    <circle cx="5" cy="12" r="1.2" fill="currentColor" stroke="none" />
+    <circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none" />
+    <circle cx="19" cy="12" r="1.2" fill="currentColor" stroke="none" />
+  </svg>
+);
+
+export const Help = () => (
+  <svg {...base} width={S} height={S}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M9.5 9a2.5 2.5 0 114 2c-.9.7-1.5 1.2-1.5 2.5" />
+    <circle cx="12" cy="17.5" r="0.8" fill="currentColor" stroke="none" />
+  </svg>
+);
+
+export const Import = () => (
+  <svg {...base} width={S} height={S}>
+    <path d="M12 3v10M8 9l4 4 4-4" />
+    <path d="M4 16v3a2 2 0 002 2h12a2 2 0 002-2v-3" />
+  </svg>
+);
+
+export const Export = () => (
+  <svg {...base} width={S} height={S}>
+    <path d="M12 14V3M8 7l4-4 4 4" />
+    <path d="M4 16v3a2 2 0 002 2h12a2 2 0 002-2v-3" />
+  </svg>
+);
+
+export const Sidebar = () => (
+  <svg {...base} width={S} height={S}>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M9 4v16" />
+  </svg>
+);
+
+export const Terminal = () => (
+  <svg {...base} width={S} height={S}>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M7 9l3 3-3 3M12.5 15h4" />
+  </svg>
+);
+
+export const Server = () => (
+  <svg {...base} width={S} height={S}>
+    <rect x="4" y="3" width="16" height="7" rx="1.5" />
+    <rect x="4" y="14" width="16" height="7" rx="1.5" />
+    <path d="M7.5 6.5h.01M7.5 17.5h.01" />
+  </svg>
+);
+
+export const Activity = () => (
+  <svg {...base} width={S} height={S}>
+    <path d="M3 12h4l2-6 4 12 2-6h6" />
+  </svg>
+);
+
+export const Check = () => (
+  <svg {...base} width={S} height={S}>
+    <path d="M5 12.5l4.5 4.5L19 7" />
+  </svg>
+);
+
+export const Alert = () => (
+  <svg {...base} width={S} height={S}>
+    <path d="M12 3L2.5 20h19z" />
+    <path d="M12 9v5" />
+    <circle cx="12" cy="17" r="0.8" fill="currentColor" stroke="none" />
+  </svg>
+);
+
 export const Copy = () => (
   <svg {...base} width={S} height={S}>
     <rect x="9" y="9" width="11" height="11" rx="1.5" />
@@ -77,13 +155,6 @@ export const Key = () => (
   <svg {...base} width={S} height={S}>
     <circle cx="8" cy="15" r="4" />
     <path d="M11 12l9-9M17 6l2 2M14 9l2 2" />
-  </svg>
-);
-
-export const Lock = () => (
-  <svg {...base} width={S} height={S}>
-    <rect x="5" y="10" width="14" height="10" rx="2" />
-    <path d="M8 10V7a4 4 0 018 0v3" />
   </svg>
 );
 

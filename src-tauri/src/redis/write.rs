@@ -150,12 +150,14 @@ pub fn build_update_row(
             expect_cells(old, 2, key_type)?;
             expect_cells(new, 2, key_type)?;
             if old[0] != new[0] {
+                // Add the new field before removing the old one so a failed
+                // HSET cannot silently drop the only copy of the value.
                 Ok(vec![
-                    Command::new("HDEL", vec![arg(key), old[0].clone()]),
                     Command::new(
                         "HSET",
                         vec![arg(key), new[0].clone(), new[1].clone()],
                     ),
+                    Command::new("HDEL", vec![arg(key), old[0].clone()]),
                 ])
             } else {
                 Ok(vec![Command::new(
@@ -167,9 +169,14 @@ pub fn build_update_row(
         "set" => {
             expect_cells(old, 1, key_type)?;
             expect_cells(new, 1, key_type)?;
+            if old[0] == new[0] {
+                return Ok(Vec::new());
+            }
+            // Add the new member before removing the old one; otherwise a
+            // failed SADD after SREM would lose the member entirely.
             Ok(vec![
-                Command::new("SREM", vec![arg(key), old[0].clone()]),
                 Command::new("SADD", vec![arg(key), new[0].clone()]),
+                Command::new("SREM", vec![arg(key), old[0].clone()]),
             ])
         }
         "zset" => {
@@ -177,12 +184,14 @@ pub fn build_update_row(
             expect_cells(new, 2, key_type)?;
             parse_score(&new[1])?;
             if old[0] != new[0] {
+                // Add the new member before removing the old one so a failed
+                // ZADD cannot silently drop the only copy of the value.
                 Ok(vec![
-                    Command::new("ZREM", vec![arg(key), old[0].clone()]),
                     Command::new(
                         "ZADD",
                         vec![arg(key), new[1].clone(), new[0].clone()],
                     ),
+                    Command::new("ZREM", vec![arg(key), old[0].clone()]),
                 ])
             } else {
                 Ok(vec![Command::new(
@@ -615,6 +624,9 @@ pub async fn delete_keys_by_pattern(
     pattern: &str,
     limit: u64,
 ) -> AppResult<u64> {
+    if limit == 0 {
+        return Ok(0);
+    }
     let mut cursor = 0u64;
     let mut deleted = 0u64;
 
@@ -632,8 +644,14 @@ pub async fn delete_keys_by_pattern(
         .await?;
 
         if !keys.is_empty() {
-            let reply = run(conn, config, &build_delete_keys(&keys)).await?;
-            deleted += integer(&reply).max(0) as u64;
+            // SCAN returns a page of up to COUNT keys, so deleting the whole
+            // page could exceed the safety limit. Delete only what is left.
+            let remaining = usize::try_from(limit.saturating_sub(deleted)).unwrap_or(usize::MAX);
+            let take = keys.len().min(remaining);
+            if take > 0 {
+                let reply = run(conn, config, &build_delete_keys(&keys[..take])).await?;
+                deleted += integer(&reply).max(0) as u64;
+            }
         }
 
         let next = next.parse::<u64>().unwrap_or(0);
@@ -728,6 +746,9 @@ pub async fn copy_keys(
     ttl_seconds: i64,
     replace: bool,
 ) -> AppResult<u64> {
+    if limit == 0 {
+        return Ok(0);
+    }
     let mut cursor = 0u64;
     let mut copied = 0u64;
 
@@ -807,10 +828,10 @@ mod tests {
             None,
         )
         .unwrap();
-        assert_eq!(renamed[0].name, "HDEL");
-        assert_eq!(renamed[0].args, plain(&["h", "old"]));
-        assert_eq!(renamed[1].name, "HSET");
-        assert_eq!(renamed[1].args, plain(&["h", "new", "value"]));
+        assert_eq!(renamed[0].name, "HSET");
+        assert_eq!(renamed[0].args, plain(&["h", "new", "value"]));
+        assert_eq!(renamed[1].name, "HDEL");
+        assert_eq!(renamed[1].args, plain(&["h", "old"]));
     }
 
     #[test]
@@ -822,16 +843,24 @@ mod tests {
     }
 
     #[test]
-    fn set_update_is_srem_then_sadd() {
+    fn set_update_adds_then_removes() {
         let commands =
             build_update_row("set", "s", &plain(&["old"]), &plain(&["new"]), None).unwrap();
-        assert_eq!(commands[0].name, "SREM");
-        assert_eq!(commands[1].name, "SADD");
-        assert_eq!(commands[1].args, plain(&["s", "new"]));
+        assert_eq!(commands[0].name, "SADD");
+        assert_eq!(commands[0].args, plain(&["s", "new"]));
+        assert_eq!(commands[1].name, "SREM");
+        assert_eq!(commands[1].args, plain(&["s", "old"]));
     }
 
     #[test]
-    fn zset_update_member_change_removes_then_adds() {
+    fn set_update_with_unchanged_member_is_a_noop() {
+        let commands =
+            build_update_row("set", "s", &plain(&["same"]), &plain(&["same"]), None).unwrap();
+        assert!(commands.is_empty());
+    }
+
+    #[test]
+    fn zset_update_member_change_adds_then_removes() {
         let commands = build_update_row(
             "zset",
             "z",
@@ -841,9 +870,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(commands.len(), 2);
-        assert_eq!(commands[0].name, "ZREM");
-        assert_eq!(commands[1].name, "ZADD");
-        assert_eq!(commands[1].args, plain(&["z", "2", "new"]));
+        assert_eq!(commands[0].name, "ZADD");
+        assert_eq!(commands[0].args, plain(&["z", "2", "new"]));
+        assert_eq!(commands[1].name, "ZREM");
+        assert_eq!(commands[1].args, plain(&["z", "old"]));
     }
 
     #[test]

@@ -1,5 +1,6 @@
 import { memo } from "react";
 
+import { Icon } from "../../components/ui/Icon";
 import { localizedColumn, useT } from "../../lib/i18n";
 import type { ValueCell, ValueRow } from "../../lib/types";
 
@@ -26,6 +27,14 @@ function preview(cell: ValueCell | undefined): string {
   return cell.payload.length > 200 ? `${oneLine}…` : oneLine;
 }
 
+/** Full value for the native tooltip, capped so huge values stay cheap. */
+function titleOf(cell: ValueCell | undefined): string {
+  if (!cell) return "";
+  const limit = 400;
+  const clipped = cell.payload.slice(0, limit);
+  return cell.payload.length > limit ? `${clipped}…` : clipped;
+}
+
 /**
  * Rows arrive already paged by the backend, so the table only ever renders one
  * page (bounded by `ValueEditorPageSize`). That keeps the DOM small without a
@@ -48,19 +57,31 @@ function ValueTable({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-3 border-b border-border px-3 py-1.5">
-        <input
-          className="h-7 w-64 rounded border border-border bg-base px-2 text-xs text-text outline-none placeholder:text-muted"
-          placeholder={t("table.filterRows")}
-          value={filter}
-          onChange={(event) => onFilter(event.target.value)}
-        />
-        <span className="text-xs text-muted">{t("table.rowsOnPage", { count: rows.length })}</span>
+        <div className="relative">
+          <Icon
+            name="filter"
+            className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted"
+          />
+          <input
+            className="h-7 w-64 rounded-sm border border-border bg-base pl-7 pr-2 text-[12px] text-text outline-none placeholder:text-muted hover:border-muted/50 focus:border-highlight/60"
+            placeholder={t("table.filterRows")}
+            value={filter}
+            onChange={(event) => onFilter(event.target.value)}
+          />
+        </div>
+        <span className="text-[11px] text-muted">{t("table.rowsOnPage", { count: rows.length })}</span>
+        {loading ? (
+          <span className="ml-auto flex items-center gap-1.5 text-[11px] text-muted">
+            <span className="spinner inline-block h-3 w-3 rounded-full border border-muted border-t-transparent" />
+            {t("common.loading")}
+          </span>
+        ) : null}
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
-        <table className="w-full border-collapse text-xs">
+        <table className="w-full table-fixed border-collapse text-xs">
           <thead className="sticky top-0 bg-surface text-muted">
             <tr>
-              <th className="w-16 border-b border-border px-2 py-1 text-right font-normal">
+              <th className="w-14 border-b border-border px-2 py-1 text-right font-normal">
                 {t("value.column.number")}
               </th>
               {dataColumns.map((column) => (
@@ -77,36 +98,51 @@ function ValueTable({
             {rows.map((row) => {
               const isSelected = row.row === selectedRow;
               return (
-                <tr key={row.row} className={isSelected ? "bg-highlight" : "hover:bg-surface"}>
-                  <td className="border-b border-border px-2 py-0.5 text-right text-muted">
+                <tr
+                  key={row.row}
+                  className={isSelected ? "bg-highlight/10" : "hover:bg-surface"}
+                >
+                  <td
+                    className={`border-b border-border px-2 py-0.5 text-right font-mono text-[11px] ${
+                      isSelected ? "text-highlight" : "text-muted"
+                    }`}
+                  >
                     {row.row}
                   </td>
-                  {row.columns.map((cell, index) => (
-                    <td
-                      key={index}
-                      className={`cursor-pointer border-b border-l border-border px-2 py-0.5 font-mono${
-                        isSelected && index === selectedColumn
-                          ? " ring-1 ring-inset ring-accent"
-                          : ""
-                      }`}
-                      onClick={() => onSelect(row, index)}
-                    >
-                      {preview(cell)}
-                    </td>
-                  ))}
+                  {row.columns.map((cell, index) => {
+                    const cellSelected = isSelected && index === selectedColumn;
+                    return (
+                      <td
+                        key={index}
+                        title={titleOf(cell)}
+                        className={`cursor-pointer truncate border-b border-l border-border px-2 py-0.5 font-mono ${
+                          cellSelected
+                            ? "bg-highlight text-white ring-1 ring-inset ring-highlight"
+                            : isSelected
+                              ? "text-text hover:bg-highlight/20"
+                              : ""
+                        }`}
+                        onClick={() => onSelect(row, index)}
+                      >
+                        {preview(cell)}
+                      </td>
+                    );
+                  })}
                 </tr>
               );
             })}
             {rows.length === 0 && !loading ? (
               <tr>
-                <td colSpan={dataColumns.length + 1} className="px-2 py-6 text-center text-muted">
-                  {t("table.noRows")}
+                <td colSpan={dataColumns.length + 1} className="px-2 py-8 text-center text-muted">
+                  <div className="flex flex-col items-center gap-1.5">
+                    <Icon name="key" className="h-5 w-5 opacity-50" />
+                    <span>{t("table.noRows")}</span>
+                  </div>
                 </td>
               </tr>
             ) : null}
           </tbody>
         </table>
-        {loading ? <div className="px-3 py-2 text-xs text-muted">{t("common.loading")}</div> : null}
       </div>
     </div>
   );

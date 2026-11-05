@@ -13,9 +13,9 @@ export function Field({
 }) {
   return (
     <label className={`block ${className}`}>
-      <span className="mb-1 block text-[12px] text-muted">{label}</span>
+      <span className="mb-1.5 block text-[11px] font-medium text-muted">{label}</span>
       {children}
-      {hint ? <span className="mt-1 block text-[11px] text-muted">{hint}</span> : null}
+      {hint ? <span className="mt-1 block text-[11px] leading-4 text-muted">{hint}</span> : null}
     </label>
   );
 }
@@ -23,7 +23,7 @@ export function Field({
 export function TextInput({ className = "", ...rest }: InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
-      className={`h-7 w-full rounded-sm border border-border bg-base px-2 text-[12px] placeholder:text-muted read-only:opacity-60 ${className}`}
+      className={`h-8 w-full rounded-sm border border-border bg-base px-2.5 text-[12px] transition-colors placeholder:text-muted hover:border-muted/50 focus:border-highlight focus:outline-none read-only:opacity-60 ${className}`}
       {...rest}
     />
   );
@@ -51,10 +51,12 @@ export function Checkbox({
       }`}
     >
       <span
-        className="flex h-4 w-4 items-center justify-center rounded-[3px] border border-border bg-base"
+        className={`flex h-4 w-4 items-center justify-center rounded-[3px] border text-[10px] font-semibold transition-colors ${
+          checked ? "border-highlight bg-highlight text-white" : "border-border bg-base"
+        }`}
         aria-hidden="true"
       >
-        {checked ? <span className="h-2.5 w-2.5 rounded-sm bg-text" /> : null}
+        {checked ? "✓" : null}
       </span>
       <input
         type="checkbox"
@@ -89,7 +91,7 @@ export function Radio({
         className="flex h-4 w-4 items-center justify-center rounded-full border border-border bg-base"
         aria-hidden="true"
       >
-        {checked ? <span className="h-2.5 w-2.5 rounded-full bg-text" /> : null}
+        {checked ? <span className="h-2 w-2 rounded-full bg-highlight" /> : null}
       </span>
       <input
         type="radio"
@@ -119,9 +121,11 @@ export function CheckGroup({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-sm border border-border p-3">
+    <section className="rounded-md border border-border bg-surface/40 p-4">
       <Checkbox label={label} checked={checked} onChange={onChange} />
-      <div className={`mt-2 space-y-2 ${checked ? "" : "opacity-50"}`}>{children}</div>
+      <div className={`mt-3 space-y-3 ${checked ? "" : "pointer-events-none opacity-50"}`}>
+        {children}
+      </div>
     </section>
   );
 }
@@ -133,7 +137,7 @@ export function Select({
 }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <select
-      className={`h-7 w-full rounded-sm border border-border bg-base px-1.5 text-[12px] ${className}`}
+      className={`h-8 w-full rounded-sm border border-border bg-base px-2 text-[12px] transition-colors hover:border-muted/50 focus:border-highlight focus:outline-none ${className}`}
       {...rest}
     >
       {children}
