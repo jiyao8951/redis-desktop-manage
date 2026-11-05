@@ -12,7 +12,7 @@ export default defineConfig({
   plugins: lazyPlugins(() => [react()]),
   clearScreen: false,
   server: {
-    port: 1420,
+    port: 1530,
     strictPort: true,
     watch: {
       ignored: ["**/src-tauri/**"],

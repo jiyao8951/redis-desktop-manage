@@ -78,24 +78,24 @@ The packaging command is Windows-only. Chinese sections below contain the full d
 
 ## 技术栈
 
-| 层 | 技术 | 职责 |
-| --- | --- | --- |
-| 前端 | React 19、TypeScript、Tailwind CSS 4 | 界面、标签页、连接树、值编辑器、服务器视图 |
-| 构建 | Vite+ 1.4.0（Vite / Rolldown / Oxlint / Oxfmt） | 开发服务器、构建、格式化、lint 与类型感知检查 |
-| 桌面壳 | Tauri v2（CLI 2.12.4） | 窗口、IPC、文件对话框、应用退出 |
-| 后端 | Rust、Tokio | 命令实现、连接池、SCAN、值读写、Live Update、Monitor |
-| Redis | `redis` 0.27（`tokio-comp`、`connection-manager`、TLS） | RESP2/RESP3、连接复用与超时控制 |
-| 存储 | `rusqlite` 0.32（bundled SQLite） | 连接、分组、过滤历史、应用设置 |
+| 层     | 技术                                                    | 职责                                                 |
+| ------ | ------------------------------------------------------- | ---------------------------------------------------- |
+| 前端   | React 19、TypeScript、Tailwind CSS 4                    | 界面、标签页、连接树、值编辑器、服务器视图           |
+| 构建   | Vite+ 1.4.0（Vite / Rolldown / Oxlint / Oxfmt）         | 开发服务器、构建、格式化、lint 与类型感知检查        |
+| 桌面壳 | Tauri v2（CLI 2.12.4）                                  | 窗口、IPC、文件对话框、应用退出                      |
+| 后端   | Rust、Tokio                                             | 命令实现、连接池、SCAN、值读写、Live Update、Monitor |
+| Redis  | `redis` 0.27（`tokio-comp`、`connection-manager`、TLS） | RESP2/RESP3、连接复用与超时控制                      |
+| 存储   | `rusqlite` 0.32（bundled SQLite）                       | 连接、分组、过滤历史、应用设置                       |
 
 ## 环境要求
 
-| 依赖 | 要求 |
-| --- | --- |
-| 操作系统 | Windows 10/11 x64 |
-| WebView2 | Microsoft Edge WebView2 Runtime（Windows 10/11 通常自带，精简系统需单独安装） |
-| Node.js | Vite+ 1.4.0 要求 `^22.18.0 \|\| ^24.11.0 \|\| >=26.0.0` |
-| Bun | 用于安装依赖和运行脚本；仓库只保留 `bun.lock` |
-| Rust | stable 工具链，`x86_64-pc-windows-msvc` 目标；`Cargo.toml` 声明 `rust-version = "1.77"` |
+| 依赖     | 要求                                                                                    |
+| -------- | --------------------------------------------------------------------------------------- |
+| 操作系统 | Windows 10/11 x64                                                                       |
+| WebView2 | Microsoft Edge WebView2 Runtime（Windows 10/11 通常自带，精简系统需单独安装）           |
+| Node.js  | Vite+ 1.4.0 要求 `^22.18.0 \|\| ^24.11.0 \|\| >=26.0.0`                                 |
+| Bun      | 用于安装依赖和运行脚本；仓库只保留 `bun.lock`                                           |
+| Rust     | stable 工具链，`x86_64-pc-windows-msvc` 目标；`Cargo.toml` 声明 `rust-version = "1.77"` |
 
 打包脚本会主动检查 `node`、`bun`、`cargo` 是否可用。
 
@@ -108,7 +108,7 @@ bun install
 bun run tauri:dev
 ```
 
-`tauri:dev` 会先启动前端开发服务器（端口 1420），再启动桌面窗口。首次运行需要下载并编译 Rust 依赖，耗时会明显长于后续启动。
+`tauri:dev` 默认使用 1530：端口空闲时直接启动前端开发服务器；若 1530 已被本仓库残留的 dev server 占用则直接复用；若被其它程序占用，会自动在 1421–1440 中选择第一个空闲端口。首次运行需要下载并编译 Rust 依赖，耗时会明显长于后续启动。
 
 只调试前端：
 
@@ -116,7 +116,7 @@ bun run tauri:dev
 bun run dev
 ```
 
-该命令固定使用 1420 端口并启用 `strictPort`，端口被占用时会直接失败。`bun run preview` 只预览已构建的前端，Tauri `invoke` 相关功能不可用。
+该命令固定使用 1530 端口并启用 `strictPort`，端口被占用时会直接失败。`bun run preview` 只预览已构建的前端，Tauri `invoke` 相关功能不可用。
 
 ## 打包与产物
 
@@ -177,13 +177,13 @@ dist-release\RedisDesktopManager_1.0.0_portable_x64.exe
 
 在仓库根目录执行，以下结果为本仓库当前实测：
 
-| 命令 | 作用 | 实测结果 |
-| --- | --- | --- |
-| `bun run check:types` | `tsc --noEmit` 类型检查 | 通过 |
-| `bun run build` | 类型检查 + `vp build` | 通过；59 modules，产物在 `dist/` |
-| `bun x vp check --no-fmt` | Oxlint + 类型感知检查（不格式化） | 通过；43 files，无 warning/lint/type 错误 |
-| `cargo test --manifest-path src-tauri\Cargo.toml` | Rust 单元测试 | 51 passed，0 failed，1 ignored |
-| `cargo check --tests --manifest-path src-tauri\Cargo.toml` | Rust 编译检查 | 可用于快速检查测试代码编译 |
+| 命令                                                       | 作用                              | 实测结果                                  |
+| ---------------------------------------------------------- | --------------------------------- | ----------------------------------------- |
+| `bun run check:types`                                      | `tsc --noEmit` 类型检查           | 通过                                      |
+| `bun run build`                                            | 类型检查 + `vp build`             | 通过；59 modules，产物在 `dist/`          |
+| `bun x vp check --no-fmt`                                  | Oxlint + 类型感知检查（不格式化） | 通过；43 files，无 warning/lint/type 错误 |
+| `cargo test --manifest-path src-tauri\Cargo.toml`          | Rust 单元测试                     | 51 passed，0 failed，1 ignored            |
+| `cargo check --tests --manifest-path src-tauri\Cargo.toml` | Rust 编译检查                     | 可用于快速检查测试代码编译                |
 
 被忽略的测试是只读冒烟测试 `read_only_smoke`，需要真实服务器环境才运行：
 
@@ -223,9 +223,9 @@ SQLite 表：
 
 ## 常见问题
 
-**Q：`bun run dev` 报端口 1420 被占用。**
+**Q：启动时提示端口 1530 被占用。**
 
-`dev` 脚本使用 `--port 1420 --strictPort`，Tauri 的 `devUrl` 也固定为 `http://localhost:1420`。先关闭占用该端口的进程；如确实需要换端口，必须同步修改 `vite.config.ts` 的 `server.port`、`src-tauri/tauri.conf.json` 的 `build.devUrl` 与 `build.beforeDevCommand`。
+`bun run dev`（只调试前端）仍固定使用 1530 并启用 `strictPort`，占用时会直接失败，请先关闭占用该端口的进程。`bun run tauri:dev` 会自动处理：如果是本仓库自己的残留 dev server，会直接复用、不再启动第二份；如果是其它程序占用，会自动选用 1421–1440 中第一个空闲端口。
 
 **Q：启动后窗口空白或提示缺少 WebView2。**
 

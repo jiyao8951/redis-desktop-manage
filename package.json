@@ -5,12 +5,12 @@
   "description": "Redis Desktop Manager desktop client rebuilt with Tauri v2 + React",
   "type": "module",
   "scripts": {
-    "dev": "vp dev --port 1420 --strictPort",
+    "dev": "vp dev --port 1530 --strictPort",
     "build": "tsc --noEmit && vp build",
     "preview": "vp preview",
     "check:types": "tsc --noEmit",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev",
+    "tauri:dev": "bun scripts/dev.mjs",
     "tauri:build": "powershell -ExecutionPolicy Bypass -File scripts/package-portable.ps1"
   },
   "dependencies": {
