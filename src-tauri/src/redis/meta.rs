@@ -166,15 +166,37 @@ pub async fn test_connection(config: &ConnectionConfig) -> AppResult<TestResult>
     })
 }
 
-/// Builds one pipeline with `TYPE key` + `TTL key` for every key. The frontend
-/// sends keys in pages of 50, so a whole page is a single round trip instead of
-/// one per key.
+/// Builds one pipeline with `TYPE key` + `TTL key` for every key. The
+/// first pipeline stays at 50 so the first screen paints quickly; later
+/// pipelines are larger to amortise round trips over the rest of the page.
 fn meta_pipeline(keys: &[String]) -> redis::Pipeline {
     let mut pipe = redis::pipe();
     for key in keys {
         pipe.cmd("TYPE").arg(key).cmd("TTL").arg(key);
     }
     pipe
+}
+
+/// First screen size (kept identical to the old fixed batching).
+const META_FIRST_BATCH: usize = 50;
+
+/// Follow-up pipeline size. 500 keys means 1000 short commands per round trip,
+/// which still fits comfortably in one TCP reply while cutting the 5000-key
+/// case from ~100 calls to ~11.
+const META_BATCH: usize = 500;
+
+/// Splits the requested keys into `[0..50, 50..550, 550..1050, ...]`.
+fn meta_batch_ranges(total: usize) -> Vec<(usize, usize)> {
+    let mut ranges = Vec::new();
+    let mut start = 0;
+    let mut size = META_FIRST_BATCH;
+    while start < total {
+        let end = (start + size).min(total);
+        ranges.push((start, end));
+        start = end;
+        size = META_BATCH;
+    }
+    ranges
 }
 
 /// TYPE replies are simple strings in RESP2 and RESP3; accept the other string
@@ -234,18 +256,25 @@ pub async fn key_meta_batch(
     }
 
     let mut conn = conn.clone();
-    let response = tokio::time::timeout(
-        execute_timeout(config),
-        meta_pipeline(keys).query_async::<Vec<Value>>(&mut conn),
-    )
-    .await;
+    let mut metas = Vec::with_capacity(keys.len());
 
-    match response {
-        Ok(Ok(replies)) => Ok(meta_from_replies(keys, replies)),
-        // One transport/timeout failure covers the whole page; every key
-        // degrades to unknown/-2 so the tree can retry it later.
-        _ => Ok(unknown_metas(keys)),
+    for (start, end) in meta_batch_ranges(keys.len()) {
+        let slice = &keys[start..end];
+        let response = tokio::time::timeout(
+            execute_timeout(config),
+            meta_pipeline(slice).query_async::<Vec<Value>>(&mut conn),
+        )
+        .await;
+
+        match response {
+            Ok(Ok(replies)) => metas.extend(meta_from_replies(slice, replies)),
+            // One transport/timeout failure only degrades that pipeline; the
+            // other batches still return real metadata.
+            _ => metas.extend(unknown_metas(slice)),
+        }
     }
+
+    Ok(metas)
 }
 
 pub async fn key_exists(
@@ -426,5 +455,22 @@ mod tests {
         assert_eq!(metas.len(), 2);
         assert!(metas.iter().all(|meta| meta.ttl == -2));
         assert!(metas.iter().all(|meta| meta.key_type == "unknown"));
+    }
+
+    #[test]
+    fn batches_keep_the_first_screen_at_fifty_then_grow() {
+        assert_eq!(meta_batch_ranges(0), Vec::<(usize, usize)>::new());
+        assert_eq!(meta_batch_ranges(50), vec![(0, 50)]);
+        assert_eq!(meta_batch_ranges(51), vec![(0, 50), (50, 51)]);
+        assert_eq!(meta_batch_ranges(5000), {
+            let mut ranges = vec![(0, 50)];
+            let mut start = 50;
+            while start < 5000 {
+                let end = (start + META_BATCH).min(5000);
+                ranges.push((start, end));
+                start = end;
+            }
+            ranges
+        });
     }
 }

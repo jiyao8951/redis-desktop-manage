@@ -31,7 +31,19 @@ pub fn build_match_pattern(
 
     match namespace {
         Some(ns) if !ns.is_empty() => {
-            let prefix = format!("{ns}{separator}");
+            // A namespace may already include its trailing separator (for
+            // example the UI keeps "rdmtest:func:"), so strip it before
+            // joining to avoid a double "::" in the MATCH pattern.
+            let ns = if separator.is_empty() {
+                ns
+            } else {
+                ns.trim_end_matches(separator)
+            };
+            let prefix = if ns.is_empty() {
+                separator.to_string()
+            } else {
+                format!("{ns}{separator}")
+            };
             if filter.is_empty() {
                 format!("{prefix}*")
             } else if filter.starts_with(&prefix) {
@@ -197,6 +209,40 @@ pub async fn list_databases(
         .collect())
 }
 
+fn reply_bytes(value: &Value) -> Option<Vec<u8>> {
+    match value {
+        Value::BulkString(bytes) => Some(bytes.clone()),
+        Value::SimpleString(text) => Some(text.as_bytes().to_vec()),
+        Value::Int(number) => Some(number.to_string().into_bytes()),
+        _ => None,
+    }
+}
+
+/// Splits a SCAN reply into (next cursor, keys). Keys that are not valid UTF-8
+/// are skipped instead of failing the whole page: the tree model and every
+/// follow-up command are string based, so showing a mangled key would target
+/// the wrong name. The page itself still succeeds and scanning continues.
+fn scan_reply_page(reply: Value) -> AppResult<(String, Vec<String>)> {
+    let Value::Array(items) = reply else {
+        return Err(AppError::Invalid("Unexpected SCAN reply".into()));
+    };
+    let next_cursor = items
+        .first()
+        .and_then(reply_bytes)
+        .map(|bytes| String::from_utf8_lossy(&bytes).trim().to_string())
+        .filter(|cursor| !cursor.is_empty())
+        .unwrap_or_else(|| "0".to_string());
+    let keys = match items.get(1) {
+        Some(Value::Array(list)) => list
+            .iter()
+            .filter_map(reply_bytes)
+            .filter_map(|bytes| String::from_utf8(bytes).ok())
+            .collect(),
+        _ => Vec::new(),
+    };
+    Ok((next_cursor, keys))
+}
+
 pub async fn scan_keys(
     conn: &mut ConnectionManager,
     config: &ConnectionConfig,
@@ -215,7 +261,7 @@ pub async fn scan_keys(
     };
     let pattern = build_match_pattern(namespace, filter, &config.namespace_separator);
 
-    let (next_cursor, keys): (String, Vec<String>) = query_with_timeout(
+    let reply: Value = query_with_timeout(
         execute_timeout(config),
         redis::cmd("SCAN")
             .arg(cursor_value)
@@ -223,9 +269,10 @@ pub async fn scan_keys(
             .arg(&pattern)
             .arg("COUNT")
             .arg(count)
-            .query_async::<(String, Vec<String>)>(conn),
+            .query_async(conn),
     )
     .await?;
+    let (next_cursor, keys) = scan_reply_page(reply)?;
 
     Ok(ScanPage {
         cursor: next_cursor,
@@ -265,5 +312,35 @@ mod tests {
         }
         let indices: Vec<u32> = databases.keys().copied().collect();
         assert_eq!(indices, (0..16).collect::<Vec<u32>>());
+    }
+
+    #[test]
+    fn match_pattern_is_idempotent_for_trailing_separator() {
+        assert_eq!(
+            build_match_pattern(Some("rdmtest:func"), Some("x"), ":"),
+            "rdmtest:func:x"
+        );
+        assert_eq!(
+            build_match_pattern(Some("rdmtest:func:"), Some("x"), ":"),
+            "rdmtest:func:x"
+        );
+        assert_eq!(
+            build_match_pattern(Some("rdmtest:func:"), None, ":"),
+            "rdmtest:func:*"
+        );
+    }
+
+    #[test]
+    fn scan_reply_skips_non_utf8_keys() {
+        let reply = Value::Array(vec![
+            bulk("42"),
+            Value::Array(vec![
+                Value::BulkString(vec![b'r', b'd', b'm', 0xff]),
+                bulk("ok"),
+            ]),
+        ]);
+        let (cursor, keys) = scan_reply_page(reply).expect("scan reply");
+        assert_eq!(cursor, "42");
+        assert_eq!(keys, vec!["ok".to_string()]);
     }
 }

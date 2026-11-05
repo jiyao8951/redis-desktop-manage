@@ -124,6 +124,17 @@ fn is_supported(key_type: &str) -> bool {
     matches!(key_type, "string" | "list" | "set" | "zset" | "hash" | "stream")
 }
 
+/// End bound for a reverse `XREVRANGE` page (`XREVRANGE key end start`).
+/// The first request starts at `+` (newest); later pages use an exclusive
+/// `(id` end, so the previous page's last entry is not returned again.
+fn stream_end_bound(cursor: &str) -> String {
+    if cursor.is_empty() || cursor == "0" {
+        "+".to_string()
+    } else {
+        format!("({cursor}")
+    }
+}
+
 /// Cursor for HSCAN/SSCAN pages. SCAN only returns an opaque server cursor, so
 /// when a batch is larger than the requested page size the surplus rows travel
 /// back to the client inside this cursor instead of being dropped.
@@ -481,13 +492,16 @@ pub async fn read_value_page(
         }
         "stream" => {
             let total = command_i64(conn, config, "XLEN", &[key]).await?.max(0) as u64;
-            let start_id = if cursor.is_empty() { "+".to_string() } else { cursor.to_string() };
+            // XREVRANGE takes (end, start). `+ -` reads the newest page;
+            // `(cursor -` continues strictly below the last emitted id, so
+            // pages neither repeat the cursor entry nor skip one.
+            let end = stream_end_bound(cursor);
             let reply = query_with_timeout(
                 timeout,
                 redis::cmd("XREVRANGE")
                     .arg(key)
-                    .arg("+")
-                    .arg(&start_id)
+                    .arg(&end)
+                    .arg("-")
                     .arg("COUNT")
                     .arg(count)
                     .query_async::<redis::Value>(conn),
@@ -498,7 +512,7 @@ pub async fn read_value_page(
             let mut done = true;
             if let redis::Value::Array(entries) = reply {
                 done = entries.len() < count as usize;
-                for (index, entry) in entries.iter().enumerate() {
+                for entry in entries.iter() {
                     let fields = match entry {
                         redis::Value::Array(fields) => fields,
                         _ => continue,
@@ -508,11 +522,6 @@ pub async fn read_value_page(
                         .and_then(as_bytes)
                         .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
                         .unwrap_or_default();
-                    // XREVRANGE's start id is inclusive; the cursor is the last
-                    // id of the previous page, so skip the repeated entry.
-                    if !cursor.is_empty() && index == 0 && id == cursor {
-                        continue;
-                    }
 
                     let mut object = serde_json::Map::new();
                     let mut field_iterator = fields.iter().skip(1);
@@ -528,9 +537,6 @@ pub async fn read_value_page(
                     }
                     let value = serde_json::Value::Object(object);
 
-                    // Count emitted rows instead of the source index: the
-                    // repeated cursor entry is skipped, so using `index` would
-                    // leave a gap in the row numbering.
                     rows.push(ValueRow {
                         row: start + rows.len() as u64,
                         columns: vec![
@@ -547,10 +553,15 @@ pub async fn read_value_page(
                 }
             }
 
+            let next_cursor = rows
+                .last()
+                .and_then(|row| row.columns.first())
+                .map(|cell| cell.payload.clone())
+                .unwrap_or_else(|| cursor.to_string());
             ValuePage {
                 key: key.to_string(),
                 key_type: key_type.to_string(),
-                cursor: rows.last().and_then(|row| row.columns.first()).map(|cell| cell.payload.clone()).unwrap_or_default(),
+                cursor: next_cursor,
                 start,
                 page_size: count,
                 rows,
@@ -602,5 +613,14 @@ mod tests {
         assert_eq!(decoded.scan, "123");
         assert!(decoded.rest.is_empty());
     }
-}
 
+    #[test]
+    fn stream_end_bound_uses_exclusive_cursor() {
+        // First page reads from the newest end; later pages must exclude the
+        // previous page's last id, otherwise the next page repeats newer
+        // entries instead of moving backwards.
+        assert_eq!(stream_end_bound(""), "+");
+        assert_eq!(stream_end_bound("0"), "+");
+        assert_eq!(stream_end_bound("1700000000000-0"), "(1700000000000-0");
+    }
+}

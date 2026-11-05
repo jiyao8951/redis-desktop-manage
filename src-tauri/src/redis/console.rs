@@ -238,6 +238,32 @@ fn rejected(input: &str, db: u32, message: String) -> ConsoleReply {
     }
 }
 
+/// Commands that can hold their client until the server-side timeout expires.
+/// Running them on the shared `ConnectionManager` makes every later command on
+/// that multiplexed connection queue behind them, so the console gives them a
+/// throw-away connection that can be abandoned when `executeTimeout` fires.
+const BLOCKING_COMMANDS: &[&str] = &[
+    "BLPOP",
+    "BRPOP",
+    "BLMOVE",
+    "BRPOPLPUSH",
+    "BLMPOP",
+    "BZPOPMIN",
+    "BZPOPMAX",
+    "BZMPOP",
+    "WAIT",
+    "WAITAOF",
+];
+
+fn is_blocking_command(name: &str, args: &[String]) -> bool {
+    if BLOCKING_COMMANDS.contains(&name) {
+        return true;
+    }
+    // XREAD/XREADGROUP only block when a BLOCK argument is present.
+    matches!(name, "XREAD" | "XREADGROUP")
+        && args.iter().any(|arg| arg.eq_ignore_ascii_case("BLOCK"))
+}
+
 pub async fn execute_console(
     conn: &mut ConnectionManager,
     config: &ConnectionConfig,
@@ -325,6 +351,19 @@ pub async fn execute_console(
         command.arg(arg);
     }
 
+    // A timed-out blocking command must not leave the pooled connection with a
+    // pending reply that delays every follow-up command, so it runs on a fresh
+    // connection owned by this call.
+    let mut dedicated = None;
+    if is_blocking_command(&name, &args) {
+        let (manager, _) = connect(config, db).await?;
+        dedicated = Some(manager);
+    }
+    let conn = match dedicated.as_mut() {
+        Some(manager) => manager,
+        None => conn,
+    };
+
     let started = Instant::now();
     let result: Result<Value, AppError> =
         query_with_timeout(execute_timeout(config), command.query_async(conn)).await;
@@ -386,5 +425,20 @@ mod tests {
             ])),
             "1) \"a\"\n2) (integer) 1"
         );
+    }
+
+    #[test]
+    fn detects_blocking_commands_that_need_a_dedicated_connection() {
+        assert!(is_blocking_command("BLPOP", &["k".into(), "1".into()]));
+        assert!(is_blocking_command("BZPOPMIN", &["k".into(), "1".into()]));
+        assert!(is_blocking_command(
+            "XREAD",
+            &["BLOCK".into(), "0".into(), "STREAMS".into(), "s".into(), "$".into()]
+        ));
+        assert!(!is_blocking_command(
+            "XREAD",
+            &["STREAMS".into(), "s".into(), "$".into()]
+        ));
+        assert!(!is_blocking_command("PING", &[]));
     }
 }

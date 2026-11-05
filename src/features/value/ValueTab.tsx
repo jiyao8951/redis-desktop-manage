@@ -21,8 +21,11 @@ import Pagination from "./Pagination";
 import ValueEditorPane from "./ValueEditorPane";
 import ValueTable from "./ValueTable";
 
-const CHUNK_BYTES = 64 * 1024;
+const CHUNK_BYTES = 1024 * 1024;
 const INDEXED_COLUMNS = ["rowNumber", "value"];
+/** Cursor pages after the first screen fetch more rows per IPC round trip. */
+const CURSOR_MORE_SIZE = 500;
+const BINARY_CELL_PREFIX = "\u0001";
 
 interface ValueTabProps {
   connectionId: string;
@@ -66,6 +69,33 @@ function cellFromBytes(bytes: Uint8Array): ValueCell {
 function columnLabel(t: TFunction, columns: string[], index: number): string {
   const dataColumns = columns.length > 0 && columns[0] === "rowNumber" ? columns.slice(1) : columns;
   return localizedColumn(t, dataColumns[index] ?? "value");
+}
+
+/** Compact row shape produced by `ValueRow`'s serializer. */
+type WireCell = string | ValueCell;
+interface WireRow {
+  r: number;
+  c: WireCell[];
+}
+
+function decodeCell(cell: WireCell): ValueCell {
+  if (typeof cell !== "string") return cell;
+  if (cell.startsWith(BINARY_CELL_PREFIX)) {
+    return { encoding: "base64", payload: cell.slice(BINARY_CELL_PREFIX.length) };
+  }
+  return { encoding: "utf8", payload: cell };
+}
+
+/** Restores the `ValueRow` shape the table/editor expect from the compact wire form. */
+function decodeValuePage(page: ValuePage): ValuePage {
+  const wireRows = page.rows as unknown as WireRow[];
+  return {
+    ...page,
+    rows: wireRows.map((row) => ({
+      row: row.r,
+      columns: row.c.map(decodeCell),
+    })),
+  };
 }
 
 const FORMATTER_IDS: FormatterId[] = ["auto", "text", "json", "hex", "hex-table", "base64-text"];
@@ -193,6 +223,8 @@ export default function ValueTab({
     [reportDirty],
   );
   const pageSize = Math.max(10, settings.valueEditorPageSize);
+  /** Already-loaded cursor pages are sliced by pageSize; fetch larger afterwards. */
+  const cursorFetchSize = Math.max(pageSize, CURSOR_MORE_SIZE);
   const sizeLimit = Math.max(1, settings.valueSizeLimit);
 
   const seq = useRef(0);
@@ -269,12 +301,18 @@ export default function ValueTab({
         let reachedLimit = false;
 
         while (offset < target) {
+          // Do not overshoot `valueSizeLimit` by a whole 1MB chunk: ask only
+          // for what the target still needs. "Load more" passes Infinity.
+          const remaining = target - offset;
+          const limit = Number.isFinite(remaining)
+            ? Math.min(CHUNK_BYTES, Math.max(1, Math.ceil(remaining)))
+            : CHUNK_BYTES;
           const chunk = await ipc.readStringChunk({
             connectionId,
             db,
             key: keyName,
             offset,
-            limit: CHUNK_BYTES,
+            limit,
             knownTotal: total ?? undefined,
           });
           if (seq.current !== ticket) return;
@@ -354,7 +392,7 @@ export default function ValueTab({
           reverse: reversed,
         });
         if (seq.current !== ticket) return;
-        setIndexedPage(result);
+        setIndexedPage(decodeValuePage(result));
         setSelected(null);
         setDataVersion((version) => version + 1);
       } catch (e) {
@@ -374,7 +412,7 @@ export default function ValueTab({
   );
 
   const fetchCursorMore = useCallback(
-    async (meta: KeyValueInfo) => {
+    async (meta: KeyValueInfo, count: number = pageSize) => {
       if (doneRef.current || rowsLoadingRef.current) return;
       const ticket = seq.current;
       rowsLoadingRef.current = true;
@@ -387,14 +425,15 @@ export default function ValueTab({
           keyType: meta.keyType,
           cursor: cursorRef.current,
           start: accRef.current.length,
-          count: pageSize,
+          count,
           reverse: false,
         });
         if (seq.current !== ticket) return;
+        const page = decodeValuePage(result);
         setCursorState(
-          [...accRef.current, ...result.rows],
-          result.cursor,
-          result.done || result.rows.length === 0,
+          [...accRef.current, ...page.rows],
+          page.cursor,
+          page.done || page.rows.length === 0,
         );
       } catch (e) {
         if (seq.current !== ticket) return;
@@ -540,7 +579,7 @@ export default function ValueTab({
       const needed = (page + 2) * pageSize;
       const before = acc.length;
       if (before < needed && !done) {
-        await fetchCursorMore(meta);
+        await fetchCursorMore(meta, cursorFetchSize);
       }
       if (accRef.current.length >= needed || (!doneRef.current && accRef.current.length > before)) {
         setPage(page + 1);
@@ -571,7 +610,7 @@ export default function ValueTab({
       let guard = 0;
       while (!doneRef.current && accRef.current.length < (target + 1) * pageSize && guard < 50) {
         const before = accRef.current.length;
-        await fetchCursorMore(meta);
+        await fetchCursorMore(meta, cursorFetchSize);
         guard += 1;
         if (accRef.current.length === before) break;
       }

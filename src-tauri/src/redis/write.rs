@@ -130,8 +130,13 @@ pub fn stream_fields(json: &[u8]) -> AppResult<Vec<Vec<u8>>> {
     Ok(fields)
 }
 
+/// `KEEPTTL` keeps the key's expiry when the editor saves a string. Without it
+/// an `SET` clears the TTL, so editing a value silently makes the key persist.
 pub fn build_save_string(key: &str, value: &[u8]) -> Vec<Command> {
-    vec![Command::new("SET", vec![arg(key), value.to_vec()])]
+    vec![Command::new(
+        "SET",
+        vec![arg(key), value.to_vec(), arg("KEEPTTL")],
+    )]
 }
 
 pub fn build_update_row(
@@ -144,7 +149,12 @@ pub fn build_update_row(
     match key_type {
         "string" => {
             expect_cells(new, 1, key_type)?;
-            Ok(vec![Command::new("SET", vec![arg(key), new[0].clone()])])
+            // Same TTL rule as the string editor: an edit must not clear the
+            // key's expiry.
+            Ok(vec![Command::new(
+                "SET",
+                vec![arg(key), new[0].clone(), arg("KEEPTTL")],
+            )])
         }
         "hash" => {
             expect_cells(old, 2, key_type)?;
@@ -318,12 +328,25 @@ pub fn build_persist(key: &str) -> Command {
     Command::new("PERSIST", vec![arg(key)])
 }
 
-/// Rename/copy restore payload. Callers pass seconds (the editor shows `TTL`
-/// in seconds), but RESTORE expects milliseconds, so the unit is converted here
-/// exactly like `build_copy_restore`.
-pub fn build_restore(key: &str, ttl_seconds: i64, payload: &[u8]) -> Command {
-    let ttl_ms = ttl_seconds.max(0).saturating_mul(1000);
-    Command::new("RESTORE", vec![arg(key), arg(ttl_ms.to_string()), arg(payload)])
+/// Atomic rename that refuses to overwrite: `RENAMENX` returns 0 when the
+/// destination exists, so nothing is modified in that case.
+pub fn build_rename(old_key: &str, new_key: &str) -> Command {
+    Command::new("RENAMENX", vec![arg(old_key), arg(new_key)])
+}
+
+/// Re-applies a hash field's remaining TTL after the value edit. `HEXPIRE`
+/// takes the field list as `FIELDS 1 <field>` (Redis 7.4+).
+pub fn build_hexpire_field(key: &str, field: &[u8], ttl: i64) -> Command {
+    Command::new(
+        "HEXPIRE",
+        vec![
+            arg(key),
+            arg(ttl.to_string()),
+            arg("FIELDS"),
+            arg("1"),
+            field.to_vec(),
+        ],
+    )
 }
 
 pub fn build_delete_keys(keys: &[String]) -> Command {
@@ -488,7 +511,54 @@ pub async fn update_row(
     let old = decode_cells(&request.old)?;
     let new = decode_cells(&request.new)?;
     let commands = build_update_row(key_type, key, &old, &new, request.position)?;
-    run_all(conn, config, &commands).await
+
+    // Hash field TTLs are per-field (Redis 7.4+). Read the remaining TTL before
+    // the write and re-apply it to the (possibly renamed) field afterwards, so
+    // editing a value cannot silently turn an expiring field into a permanent
+    // one. Older servers without HTTL/HEXPIRE simply skip this step.
+    let field_ttl = if key_type == "hash" {
+        hash_field_ttl(conn, config, key, &old[0]).await
+    } else {
+        None
+    };
+
+    run_all(conn, config, &commands).await?;
+
+    if let Some(ttl) = field_ttl.filter(|ttl| *ttl > 0) {
+        run_all(conn, config, &[build_hexpire_field(key, &new[0], ttl)]).await?;
+    }
+    Ok(())
+}
+
+/// Reads `HTTL key FIELDS 1 field` and returns the remaining seconds, or `None`
+/// when the field has no TTL (-1), is gone (-2) or the server does not support
+/// field expiration. Errors are swallowed on purpose: preserving a field TTL is
+/// best-effort and must never block the actual value edit.
+async fn hash_field_ttl(
+    conn: &mut ConnectionManager,
+    config: &ConnectionConfig,
+    key: &str,
+    field: &[u8],
+) -> Option<i64> {
+    let reply: redis::Value = query_with_timeout(
+        execute_timeout(config),
+        redis::cmd("HTTL")
+            .arg(key)
+            .arg("FIELDS")
+            .arg(1)
+            .arg(field)
+            .query_async(conn),
+    )
+    .await
+    .ok()?;
+    let ttl = match reply {
+        redis::Value::Array(items) => items
+            .first()
+            .and_then(|value| redis::from_redis_value::<i64>(value).ok()),
+        redis::Value::Int(value) => Some(value),
+        _ => None,
+    }?;
+    (ttl > 0).then_some(ttl)
 }
 
 pub async fn add_row(
@@ -558,37 +628,36 @@ pub async fn persist_key(
     Ok(())
 }
 
-/// DUMP + RESTORE + DEL, the cluster-compatible rename used by the original
-/// KeyModel::setKeyName.
+/// Atomic `RENAMENX`. A rename is only performed when the destination is free:
+/// an existing destination is reported as an error and neither key is touched.
+/// On success the value and its TTL move with the key.
 pub async fn rename_key(
     conn: &mut ConnectionManager,
     config: &ConnectionConfig,
     old_key: &str,
     new_key: &str,
-    ttl: i64,
+    _ttl: i64,
 ) -> AppResult<()> {
-    let payload: Vec<u8> = query_with_timeout(
-        execute_timeout(config),
-        redis::cmd("DUMP").arg(old_key).query_async(conn),
-    )
-    .await?;
-    if payload.is_empty() {
-        return Err(AppError::Message(format!("Key {old_key} does not exist")));
-    }
-
-    let restore = build_restore(new_key, ttl, &payload);
-    let reply = run(conn, config, &restore).await?;
-    if let redis::Value::SimpleString(text) = &reply {
-        if text != "OK" {
+    let reply = match run(conn, config, &build_rename(old_key, new_key)).await {
+        Ok(reply) => reply,
+        // Redis answers "ERR no such key"; wrap it so the dialog explains which
+        // key failed instead of showing a bare server error.
+        Err(error) => {
             return Err(AppError::Message(format!(
-                "Cannot rename key {old_key}: {text}"
-            )));
+                "Cannot rename key {old_key}: {error}"
+            )))
         }
-    }
+    };
 
-    let delete = Command::new("DEL", vec![arg(old_key)]);
-    run_all(conn, config, &[delete]).await?;
-    Ok(())
+    match reply {
+        redis::Value::Int(1) => Ok(()),
+        redis::Value::Int(_) => Err(AppError::Message(format!(
+            "Cannot rename key {old_key}: target key {new_key} already exists"
+        ))),
+        other => Err(AppError::Message(format!(
+            "Cannot rename key {old_key}: unexpected reply {other:?}"
+        ))),
+    }
 }
 
 pub async fn delete_key(
@@ -691,9 +760,20 @@ async fn scan_pattern_page(
     Ok((next.parse::<u64>().unwrap_or(0), keys))
 }
 
+/// Negative TTLs are rejected before reaching Redis: `EXPIRE key -1` deletes
+/// the key, which is never what "set TTL in bulk" should do.
+fn validate_bulk_ttl(ttl: i64) -> AppResult<()> {
+    if ttl < 0 {
+        return Err(AppError::Invalid(
+            "The TTL must be 0 (persist) or a positive number of seconds".into(),
+        ));
+    }
+    Ok(())
+}
+
 /// Bulk "Set TTL for multiple keys": SCAN the pattern, then send EXPIRE/PERSIST
 /// in small pipelines. `0` means PERSIST (never `EXPIRE 0`, which would delete
-/// the key); negative values keep the original "delete matching keys" semantic.
+/// the key); negative values are rejected instead of deleting keys.
 pub async fn set_ttl_by_pattern(
     conn: &mut ConnectionManager,
     config: &ConnectionConfig,
@@ -701,6 +781,7 @@ pub async fn set_ttl_by_pattern(
     ttl: i64,
     limit: u64,
 ) -> AppResult<u64> {
+    validate_bulk_ttl(ttl)?;
     const PIPELINE_BATCH: usize = 200;
     let mut cursor = 0u64;
     let mut changed = 0u64;
@@ -800,11 +881,11 @@ mod tests {
     }
 
     #[test]
-    fn string_save_uses_set() {
+    fn string_save_uses_set_and_keeps_ttl() {
         let commands = build_save_string("k", b"hello");
         assert_eq!(commands.len(), 1);
         assert_eq!(commands[0].name, "SET");
-        assert_eq!(commands[0].args, plain(&["k", "hello"]));
+        assert_eq!(commands[0].args, plain(&["k", "hello", "KEEPTTL"]));
     }
 
     #[test]
@@ -1000,24 +1081,19 @@ mod tests {
     }
 
     #[test]
-    fn restore_uses_zero_ttl_when_missing() {
-        assert_eq!(
-            build_restore("k", -1, b"payload").args,
-            plain(&["k", "0", "payload"])
-        );
+    fn rename_is_atomic_and_refuses_to_overwrite() {
+        let rename = build_rename("old", "new");
+        assert_eq!(rename.name, "RENAMENX");
+        assert_eq!(rename.args, plain(&["old", "new"]));
+        // A separate RESTORE/DEL sequence must no longer be built for rename.
+        assert!(!rename.args.iter().any(|value| value == b"RESTORE"));
     }
 
     #[test]
-    fn restore_converts_seconds_to_milliseconds() {
-        // Rename passes the TTL shown by the editor (seconds); RESTORE wants ms.
-        assert_eq!(
-            build_restore("k", 60, b"payload").args,
-            plain(&["k", "60000", "payload"])
-        );
-        assert_eq!(
-            build_restore("k", 0, b"payload").args,
-            plain(&["k", "0", "payload"])
-        );
+    fn hash_field_ttl_restore_uses_hexpire_fields() {
+        let restore = build_hexpire_field("h", b"f", 120);
+        assert_eq!(restore.name, "HEXPIRE");
+        assert_eq!(restore.args, plain(&["h", "120", "FIELDS", "1", "f"]));
     }
 
     #[test]
@@ -1026,9 +1102,17 @@ mod tests {
         assert_eq!(build_ttl_command("k", 0).args, plain(&["k"]));
         assert_eq!(build_ttl_command("k", 30).name, "EXPIRE");
         assert_eq!(build_ttl_command("k", 30).args, plain(&["k", "30"]));
-        // Negative values keep the original "delete matching keys" behaviour.
+        // The raw builder still maps a negative TTL to EXPIRE, but the public
+        // bulk API rejects it before any command is sent.
         assert_eq!(build_ttl_command("k", -1).name, "EXPIRE");
         assert_eq!(build_ttl_command("k", -1).args, plain(&["k", "-1"]));
+    }
+
+    #[test]
+    fn negative_bulk_ttl_is_rejected() {
+        assert!(validate_bulk_ttl(-1).is_err());
+        assert!(validate_bulk_ttl(0).is_ok());
+        assert!(validate_bulk_ttl(60).is_ok());
     }
 
     #[test]

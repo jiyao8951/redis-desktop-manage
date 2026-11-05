@@ -148,14 +148,15 @@ async fn connect_once(
     Ok(manager)
 }
 
-/// Builds the manager policy from the per-connection timeouts: the manager
-/// response timeout matches `executeTimeout` (so a stalled command is bounded
-/// even without the outer `query_with_timeout` wrapper) and connection attempts
-/// use `connection_timeout`.
+/// Builds the manager policy from the per-connection timeouts: the manager's
+/// own response timeout sits slightly *above* `executeTimeout`, so the outer
+/// `query_with_timeout` wrapper always fires first. When both share the same
+/// deadline the manager can lose the race, tear down the multiplexed connection
+/// and leave the next small command waiting for a reconnect.
 pub fn manager_config(config: &ConnectionConfig) -> ConnectionManagerConfig {
     ConnectionManagerConfig::new()
         .set_connection_timeout(connection_timeout(config))
-        .set_response_timeout(execute_timeout(config))
+        .set_response_timeout(response_timeout(config))
         .set_number_of_retries(MANAGER_RETRIES)
         .set_factor(MANAGER_RETRY_FACTOR)
         .set_exponent_base(MANAGER_RETRY_EXPONENT)
@@ -228,6 +229,15 @@ pub fn execute_timeout(config: &ConnectionConfig) -> Duration {
     Duration::from_millis(config.execute_timeout.clamp(500, 600_000) as u64)
 }
 
+/// Grace added to the manager's internal response timeout. Keeping it longer
+/// than `execute_timeout` lets the outer wrapper report `Timeout` first instead
+/// of racing the manager, which would reconnect and stall follow-up commands.
+const RESPONSE_TIMEOUT_GRACE: Duration = Duration::from_millis(100);
+
+pub fn response_timeout(config: &ConnectionConfig) -> Duration {
+    execute_timeout(config) + RESPONSE_TIMEOUT_GRACE
+}
+
 pub async fn query_with_timeout<T, F>(duration: Duration, future: F) -> AppResult<T>
 where
     F: Future<Output = redis::RedisResult<T>>,
@@ -259,7 +269,7 @@ mod tests {
     }
 
     #[test]
-    fn manager_config_aligns_with_execute_timeout() {
+    fn manager_response_timeout_lags_execute_timeout() {
         let mut config = default_config();
         config.execute_timeout = 5_000;
         config.connection_timeout = 2_000;
@@ -267,9 +277,14 @@ mod tests {
         // prints every timeout we care about.
         let rendered = format!("{:?}", manager_config(&config));
         assert!(
-            rendered.contains(&format!("response_timeout: Some({:?})", execute_timeout(&config))),
+            rendered.contains(&format!("response_timeout: Some({:?})", response_timeout(&config))),
             "{rendered}"
         );
+        assert_eq!(
+            response_timeout(&config),
+            execute_timeout(&config) + RESPONSE_TIMEOUT_GRACE
+        );
+        assert!(response_timeout(&config) > execute_timeout(&config));
         assert!(
             rendered.contains(&format!(
                 "connection_timeout: Some({:?})",
