@@ -4,6 +4,16 @@
 
 连接、分组和设置保存在本机 SQLite；键浏览、值编辑、命令控制台和服务器诊断都在同一个窗口内完成，界面提供简体中文与英文。
 
+## 界面预览
+
+| 欢迎页 | 新建连接 | 键值查看与编辑 |
+| :---: | :---: | :---: |
+| ![欢迎页](docs/screenshots/welcome.png) | ![新建连接](docs/screenshots/connection-dialog.png) | ![键值查看与编辑](docs/screenshots/value-editor.png) |
+
+- **欢迎页**：首次启动的空态落点，汇总当前版本能力，一键进入“添加服务器”。
+- **新建连接**：地址、认证（密码 / ACL 用户名）、SSL/TLS 与 SSH 隧道选项集中在一个对话框，支持“测试连接”与“重置设置”。
+- **键值查看与编辑**：以 hash 键 `cityList` 为例，展示键元信息（TTL、编码、内存占用）、分页数据表、行过滤与底部完整值查看器。
+
 ## Overview (English)
 
 Redis Desktop Manager is a Redis GUI for Windows x64, built with Tauri v2 (Rust) and React 19. It ships as a single portable executable and covers connection management, a namespace-aware key tree, viewing/editing of the six core Redis types, a command console, server diagnostics (INFO / MONITOR / SLOWLOG / CLIENT LIST / STATS / CONFIG GET / MEMORY), keyspace-notification Live Update, and an English/Simplified Chinese UI.
@@ -167,6 +177,7 @@ dist-release\RedisDesktopManager_1.0.0_portable_x64.exe
 ├─ scripts/
 │  ├─ package-portable.ps1       唯一打包脚本
 │  └─ lib-versions.ps1           版本一致性检查
+├─ docs/screenshots/             README 界面截图
 ├─ dist-release/                 打包产物（gitignored）
 ├─ package.json
 ├─ vite.config.ts
