@@ -1,0 +1,259 @@
+@import "tailwindcss";
+
+/* Tailwind 4: class-based dark mode must be declared explicitly (v4 defaults
+   to prefers-color-scheme). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Tailwind 4 theme tokens replace the removed tailwind.config.ts. Named
+   colors/fonts/sizes/spacing are generated from these variables. */
+@theme {
+  --color-win: rgb(var(--win));
+  --color-base: rgb(var(--base));
+  --color-surface: rgb(var(--surface));
+  --color-text: rgb(var(--text));
+  --color-muted: rgb(var(--muted));
+  --color-border: rgb(var(--border));
+  --color-highlight: rgb(var(--highlight));
+  --color-accent: rgb(var(--accent));
+  --color-danger: rgb(var(--danger));
+  --color-success: rgb(var(--success));
+
+  --font-ui: "Segoe UI", Tahoma, sans-serif;
+  --font-mono: Consolas, Menlo, monospace;
+
+  --text-tree: var(--fs-13);
+  --text-tree--line-height: var(--ui-row-leading);
+
+  --spacing-row: var(--ui-row);
+
+  /* One radius scale for the whole app: controls 4px, cards/menus/dialogs 8px. */
+  --radius-xs: 3px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+}
+
+/* Light palette: a neutral, slightly cool UI with enough contrast for dense
+   tables. Selected rows use --highlight with white text (4.7:1). */
+:root {
+  --win: 243 246 250;
+  --base: 255 255 255;
+  --surface: 247 249 252;
+  --text: 28 33 41;
+  --muted: 96 105 118;
+  --border: 213 219 228;
+  --highlight: 47 111 221;
+  --accent: 198 48 43; /* accent red used by primary buttons */
+  --danger: 186 43 43;
+  --success: 32 133 81;
+  color-scheme: light;
+}
+
+.dark {
+  --win: 29 31 35;
+  --base: 39 41 46;
+  --surface: 47 50 56;
+  --text: 228 231 236;
+  --muted: 152 159 170;
+  --border: 63 67 76;
+  --highlight: 47 111 221;
+  --accent: 214 66 60;
+  --danger: 232 106 106;
+  --success: 96 186 128;
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+/* Responsive size tiers. Values are CSS logical pixels, so a 4K display at
+   200% scaling still reports a 1920px viewport and lands in the 1920 tier
+   instead of double-scaling to absurd sizes. Tier 1 (<1920) is the base. */
+:root {
+  --fs-11: 11px;
+  --fs-12: 12px;
+  --fs-13: 13px;
+  --fs-14: 14px;
+  --fs-15: 15px;
+  --fs-17: 17px;
+  --ui-row: 34px;
+  --ui-row-leading: 19px;
+  --ui-control: 32px;
+  --ui-control-lg: 36px;
+  --ui-tabbar: 40px;
+  --ui-toolbar: 44px;
+  --ui-editor-leading: 20px;
+  --ui-dialog-scale: 1;
+}
+
+/* Breakpoints are 1600/2400 (not exactly 1920/2560) because the WebView2
+   client area is slightly narrower than the window, and a 1920px window
+   should still land in the larger tier. */
+@media (min-width: 1600px) {
+  :root {
+    --fs-11: 12px;
+    --fs-12: 13px;
+    --fs-13: 15px;
+    --fs-14: 16px;
+    --fs-15: 17px;
+    --fs-17: 19px;
+    --ui-row: 38px;
+    --ui-row-leading: 22px;
+    --ui-control: 36px;
+    --ui-control-lg: 40px;
+    --ui-tabbar: 44px;
+    --ui-toolbar: 48px;
+    --ui-editor-leading: 22px;
+    --ui-dialog-scale: 1.08;
+  }
+}
+
+@media (min-width: 2400px) {
+  :root {
+    --fs-11: 13px;
+    --fs-12: 14px;
+    --fs-13: 16px;
+    --fs-14: 18px;
+    --fs-15: 19px;
+    --fs-17: 21px;
+    --ui-row: 42px;
+    --ui-row-leading: 24px;
+    --ui-control: 40px;
+    --ui-control-lg: 44px;
+    --ui-tabbar: 48px;
+    --ui-toolbar: 52px;
+    --ui-editor-leading: 24px;
+    --ui-dialog-scale: 1.16;
+  }
+}
+
+/* Core reading areas (tree rows, value cells, console output, dense server
+   tables) follow the explicit app font size, but never drop below the current
+   tier baseline. This keeps 13px chrome while the text people actually read
+   scales with the setting and the viewport. */
+:root {
+  --fs-content: max(var(--app-font, var(--fs-13)), var(--fs-13));
+}
+
+/* Tier-aware text sizes used across components. An explicit `appFontSize`
+   setting overrides the body base size, while chrome sizes follow the tier. */
+.t-content {
+  font-size: var(--fs-content);
+}
+
+/* Titles sit one step above content so the hierarchy stays readable even when
+   the user raises the content size. */
+.t-title {
+  font-size: max(calc(var(--fs-content) + 1px), var(--fs-15));
+}
+
+.t-11 {
+  font-size: var(--fs-11);
+}
+.t-12 {
+  font-size: var(--fs-12);
+}
+.t-13 {
+  font-size: var(--fs-13);
+}
+.t-14 {
+  font-size: var(--fs-14);
+}
+.t-15 {
+  font-size: var(--fs-15);
+}
+.t-17 {
+  font-size: var(--fs-17);
+}
+
+/* Value editor: the user setting can raise the size, but never below the
+   current content baseline. */
+.t-editor {
+  font-size: max(var(--editor-font, var(--fs-content)), var(--fs-content));
+}
+
+body {
+  @apply bg-win text-text font-ui;
+  font-size: var(--app-font, var(--fs-14));
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--border));
+  background-clip: padding-box;
+  border: 2px solid transparent;
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--muted));
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+  color: inherit;
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+button:focus {
+  outline: none;
+}
+
+/* Keyboard focus only: mouse clicks stay quiet, tab navigation stays obvious. */
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+button:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid rgb(var(--highlight) / 0.5);
+  outline-offset: 0;
+}
+
+/* Tree rows must not show a focus ring inside the virtualized viewport. */
+.tree-row:focus {
+  outline: none;
+}
+
+/* Simple indeterminate spinner used for lazy-loading nodes. */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinner {
+  animation: spin 0.9s linear infinite;
+}
+
+.dialog-backdrop {
+  background: rgb(0 0 0 / 0.45);
+}

@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+dist/
+dist-release/
+dist-ssr/
+*.local
+
+# Rust / Tauri build output
+src-tauri/target/
+src-tauri/gen/
+bundle/
+
+# Installers and packaging artifacts
+*.msi
+*.nsis.zip
+*.msix
+*.exe
+*.dmg
+*.deb
+*.rpm
+*.AppImage
+*.pdb
+
+# Logs and local data
+*.log
+*.sqlite
+*.sqlite3
+*.sqlite3-journal
+*.db
+*.db-journal
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Editor / OS noise
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
