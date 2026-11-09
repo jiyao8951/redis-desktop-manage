@@ -472,10 +472,40 @@ export const en = {
   "value.ttlSet": "TTL set to {ttl} second(s)",
   "value.keyNameRequired": "Key name is required",
   "value.keyRenamed": "Key renamed to {name}",
+  "value.view.text": "Raw",
+  "value.view.json": "Formatted JSON",
+  "value.view.tree": "JSON Tree",
+  "value.format": "Format",
+  "value.formatInvalid": "Invalid JSON: {error}",
+  "value.formatSave": "Format & save",
+  "value.formatSaveConfirm":
+    "Saving replaces the stored value with the formatted JSON text. Continue?",
+  "value.formatSaveBlocked": "The value is not fully loaded, so format & save is disabled.",
+  "value.jsonTooLarge": "JSON exceeds {limit}; automatic parsing was skipped.",
+  "value.tryParse": "Try parsing",
+  "value.jsonNotDetected": "This content is not detected as JSON. Showing the raw text.",
+  "value.editorMaximize": "Maximize editor",
+  "value.editorRestore": "Restore editor",
+  "value.searchPatternRequired": "Enter a search text first",
 
   // Value table and pagination
   "table.filterRows": "Filter loaded rows",
   "table.rowsOnPage": "{count} rows on this page",
+  "table.filterLoadedHint": "Local filter: {count} loaded row(s) only",
+  "table.searchAll": "Search entire key",
+  "table.searchAllPlaceholder": "Search all fields/values in this key",
+  "table.searchTarget": "Search in",
+  "table.searchTargetField": "Field names",
+  "table.searchTargetValue": "Values",
+  "table.searchClear": "Exit search",
+  "table.searchActive": "Search \"{pattern}\"",
+  "table.searchScanned": "scanned {count} entries",
+  "table.searchIncomplete": "Results may be incomplete (scan limit reached).",
+  "table.searchMore": "Load more results",
+  "table.searchNoResults": "No matches in the scanned range",
+  "table.searchUnsupported":
+    "This backend does not support full-key search yet; the local filter still works.",
+  "table.searchFailed": "Search failed: {error}",
   "table.noRows": "No rows",
   "pagination.prev": "◀ Prev",
   "pagination.next": "Next ▶",
@@ -494,8 +524,136 @@ export const en = {
   "formatter.hexTable": "HEX TABLE",
   "formatter.base64Text": "BASE64 → Text",
 
+  // JSON tree
+  "json.objectSummary": "Object · {count} properties",
+  "json.arraySummary": "Array · {count} items",
+  "json.copyNode": "Copy this node",
+
   // Charts
   "chart.waiting": "Waiting for samples…",
+
+  // Monitor panel enhancements
+  "monitor.pause": "Pause",
+  "monitor.resume": "Resume",
+  "monitor.paused": "Paused",
+  "monitor.pausedStats": "{received} received, {dropped} dropped while paused",
+  "monitor.pausedHint": "Display is frozen; only the newest lines are buffered.",
+  "monitor.autoScroll": "Auto-scroll",
+  "monitor.jumpToBottom": "Bottom",
+  "monitor.filterCommandPlaceholder": "Cmd prefix e.g. GET,HSET",
+  "monitor.filterClientPlaceholder": "Client address",
+  "monitor.filterDbPlaceholder": "DB no.",
+  "monitor.exportMask": "Mask credentials",
+  "monitor.exportRisk": "Unmasked export can write passwords to disk.",
+  "monitor.export": "Export",
+  "monitor.exportEmpty": "Nothing to export.",
+  "monitor.exportStarted": "Exported {count} line(s) through the browser download.",
+  "monitor.viewFull": "View full",
+  "monitor.collapseLine": "Collapse",
+  "monitor.kindRead": "read",
+  "monitor.kindWrite": "write",
+  "monitor.kindDelete": "delete",
+  "monitor.kindDanger": "danger",
+  "monitor.filteredCount": "{shown} / {total} shown",
+
+  // Console enhancements
+  "console.history": "History",
+  "console.historySearch": "Search history",
+  "console.historyEmpty": "No matching history.",
+  "console.autocompleteUnavailable": "Autocomplete unavailable: the server refused COMMAND DOCS/INFO.",
+  "console.argHint": "Arguments:",
+  "console.danger.title": "Run a dangerous command?",
+  "console.danger.body":
+    "This command changes server or data state. Make sure you understand its effect before running it.",
+  "console.danger.confirm": "Run anyway",
+  "console.danger.flushAll": "FLUSHALL deletes every key in every database and cannot be undone.",
+  "console.danger.flushDb": "FLUSHDB deletes every key in the current database and cannot be undone.",
+  "console.danger.shutdown": "SHUTDOWN stops the server; connected clients are disconnected immediately.",
+  "console.danger.debug": "DEBUG can crash, pause or dump the internal state of the server.",
+  "console.danger.configSet": "CONFIG SET changes the running server configuration immediately.",
+  "console.danger.configRewrite": "CONFIG REWRITE overwrites the server configuration file on disk.",
+  "console.danger.configResetStat": "CONFIG RESETSTAT clears all server statistics.",
+  "console.danger.scriptFlush": "SCRIPT FLUSH removes all cached Lua scripts; clients must reload them.",
+  "console.danger.aclSetUser": "ACL SETUSER changes user permissions immediately.",
+  "console.danger.aclDelUser": "ACL DELUSER removes a user and disconnects its clients.",
+  "console.output.collapse": "Collapse",
+  "console.output.expand": "Show all ({count} lines)",
+  "console.output.collapsedHint": "Showing {shown} of {total} lines",
+  "console.output.pretty": "Format JSON",
+  "console.output.compact": "Compact JSON",
+  "console.output.viewFull": "View full",
+  "console.output.showBase64": "Show Base64",
+  "console.output.showHex": "Show HEX",
+
+  // Connection search, favorites, expansion persistence
+  "tree.searchPlaceholder": "Search connections by name or host:port",
+  "tree.searchClear": "Clear search",
+  "tree.searchNoMatch": "No connection matches the search.",
+  "tree.favorite": "Add to Favorites",
+  "tree.unfavorite": "Remove from Favorites",
+  "tree.duplicateCredentialsHint":
+    'Duplicating "{name}" also copies the saved credentials (password, username and other connection settings).',
+  "tree.flushAllDatabases": "Flush All Databases (FLUSHALL level)",
+  "tree.flushedAll": "Flushed {count} database(s)",
+  "tree.loadFactsFailed": "Cannot read server info: {error}",
+
+  // Danger confirmation dialog
+  "danger.confirm": "Execute",
+  "danger.fullServer": "Server-wide operation",
+  "danger.fullServerHint": "This affects every database on the server and cannot be undone.",
+  "danger.serverLabel": "Server",
+  "danger.databaseLabel": "Database",
+  "danger.keyCountLabel": "Keys",
+  "danger.keyCount": "{count} keys",
+  "danger.typeToConfirm": 'Type "{text}" to confirm',
+  "danger.deleteKeyTitle": "Delete key",
+  "danger.deleteKeyDescription": 'Delete key "{key}" from db{db}. This cannot be undone.',
+  "danger.deletePatternTitle": "Delete keys by pattern",
+  "danger.deletePatternDescription":
+    'Delete every key matching "{pattern}" in db{db}. This cannot be undone.',
+  "danger.flushDbTitle": "Flush db{db}",
+  "danger.flushDbDescription":
+    "Every key in db{db} will be permanently deleted. This cannot be undone.",
+  "danger.flushAllTitle": "Flush all databases on {name}",
+  "danger.flushAllDescription":
+    "Every key in every database on this server will be permanently deleted. This cannot be undone.",
+  "danger.flushAllConfirm": "Flush all databases",
+  "danger.bulkTtlTitle": "Update TTL for multiple keys",
+  "danger.bulkTtlDescription":
+    'Apply a TTL of {ttl} second(s) to every key matching "{pattern}" in this database.',
+  "danger.copyKeysTitle": "Copy keys to another database",
+  "danger.copyKeysDescription": 'Copy keys matching "{pattern}" from {source} to {target}.',
+  "danger.copyReplaceWarning":
+    "Existing keys in the target database will be overwritten (REPLACE).",
+
+  // Quick connection lists
+  "quick.recentTitle": "Recent Connections",
+  "quick.favoritesTitle": "Favorites",
+  "quick.recentEmpty": "No recently used connections yet.",
+  "quick.favoritesEmpty": "No favorite connections yet. Use the star in the connection tree.",
+
+  // Toolbar and shell
+  "toolbar.recentConnections": "Recent Connections",
+  "toolbar.favoritesConnections": "Favorites",
+  "toolbar.closeAllConnections": "Close All Connections",
+  "toolbar.focusValueEditor": "Focus Value Editor",
+  "app.closeAllTitle": "Close all connections",
+  "app.closeAllDescription":
+    "Every Redis connection pool, Live Update subscription and monitor task will be released. Open tabs for these connections will be closed.",
+  "app.closeAllConfirm": "Close all",
+  "app.closeAllCount": "{count} connection(s) will be closed.",
+  "app.closedAllConnections": "Closed {count} connection(s)",
+  "app.closeAllPartial": "Closed {count} connection(s), {failed} failed. Check the log for details.",
+  "app.showTree": "Show connection tree",
+  "app.resizeTreeReset": "Double-click to reset width",
+
+  // Connection dialog
+  "conn.testStepDuration": "{ms} ms",
+  "conn.notSupported": "Not supported yet",
+  "conn.sshUnsupportedHint":
+    "SSH tunneling is not implemented yet. These settings are stored but do not change how the connection is made.",
+  "conn.certUnsupportedHint":
+    "Custom CA and client certificate settings are not implemented yet. They are stored but not used by the TLS handshake.",
 } satisfies Record<string, string>;
 
 export type Messages = typeof en;

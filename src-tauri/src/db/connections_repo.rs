@@ -397,7 +397,10 @@ pub fn import_file(conn: &Connection, path: &Path) -> AppResult<usize> {
         _ => return Err(AppError::Invalid("Unsupported import file".into())),
     };
 
-    let mut count = 0usize;
+    // Parse and validate every entry before touching the database, then write
+    // them in one transaction. A single bad row or a failure halfway through
+    // rolls the whole import back instead of leaving the list half updated.
+    let mut configs: Vec<ConnectionConfig> = Vec::with_capacity(items.len());
     for item in items {
         let mut config: ConnectionConfig = serde_json::from_value(item)?;
         config.id = String::new();
@@ -405,10 +408,15 @@ pub fn import_file(conn: &Connection, path: &Path) -> AppResult<usize> {
         if config.name.trim().is_empty() {
             config.name = format!("{}:{}", config.host, config.port);
         }
-        save_config(conn, config)?;
-        count += 1;
+        configs.push(config);
     }
-    Ok(count)
+
+    let transaction = conn.unchecked_transaction()?;
+    for config in &configs {
+        save_config(&transaction, config.clone())?;
+    }
+    transaction.commit()?;
+    Ok(configs.len())
 }
 
 pub fn export_file(conn: &Connection, path: &Path) -> AppResult<()> {

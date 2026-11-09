@@ -7,12 +7,48 @@ use crate::error::{AppError, AppResult};
 use crate::models::connection::ConnectionConfig;
 use crate::redis::manager::{execute_timeout, query_with_timeout};
 
-/// Placeholder used to remove an item at a position: LSET the slot to an
-/// unpredictable marker, then LREM it by value (Redis has no positional list
-/// delete). The marker carries a UUID so a value that already exists in the
-/// list can never be removed by accident.
+/// Placeholder used by the atomic list-delete script: the target slot is
+/// overwritten with an unpredictable marker, then the marker is removed by
+/// value. The UUID guarantees it can never collide with an existing element.
 fn list_removal_token() -> String {
     format!("__resp_deleted_{}__", uuid::Uuid::new_v4().simple())
+}
+
+/// Deletes one list element at `position` atomically. Redis has no positional
+/// list delete, so the script validates the key type and index, overwrites the
+/// slot with a per-call UUID marker, and removes exactly that marker with
+/// `LREM <marker> 1`. Sending `LREM 0 <value>` on the real element would also
+/// delete duplicates elsewhere in the list.
+const LIST_DELETE_SCRIPT: &str = r#"
+local key = KEYS[1]
+local marker = ARGV[1]
+local position = tonumber(ARGV[2])
+if redis.call('TYPE', key)['ok'] ~= 'list' then
+  return -3
+end
+local length = redis.call('LLEN', key)
+if position < 0 then
+  position = length + position
+end
+if position < 0 or position >= length then
+  return -2
+end
+redis.call('LSET', key, position, marker)
+redis.call('LREM', key, 1, marker)
+return 1
+"#;
+
+fn build_list_delete(key: &str, position: i64) -> Command {
+    Command::new(
+        "EVAL",
+        vec![
+            arg(LIST_DELETE_SCRIPT),
+            arg("1"),
+            arg(key),
+            arg(list_removal_token()),
+            arg(position.to_string()),
+        ],
+    )
 }
 
 /// A single RESP command with binary-safe arguments (command name excluded).
@@ -90,12 +126,21 @@ fn require_position(position: Option<i64>) -> AppResult<i64> {
     position.ok_or_else(|| AppError::Invalid("The list row position is required".into()))
 }
 
-fn parse_score(score: &[u8]) -> AppResult<()> {
+/// Scores must be finite. `f64::from_str` accepts `NaN`, `inf` and `-inf`, but
+/// Redis rejects those as "not a valid float", so both create and edit paths
+/// validate with `is_finite()` before sending anything.
+fn parse_score(score: &[u8]) -> AppResult<f64> {
     let text = std::str::from_utf8(score)
         .map_err(|_| AppError::Invalid("The score must be a number".into()))?;
-    text.parse::<f64>()
+    let value = text
+        .parse::<f64>()
         .map_err(|_| AppError::Invalid("The score must be a number".into()))?;
-    Ok(())
+    if !value.is_finite() {
+        return Err(AppError::Invalid(
+            "The score must be a finite number".into(),
+        ));
+    }
+    Ok(value)
 }
 
 /// XADD takes a flat list of field/value pairs. The editor sends the entry as
@@ -292,14 +337,7 @@ pub fn build_delete_row(
         "list" => {
             expect_cells(old, 1, key_type)?;
             let position = require_position(position)?;
-            let token = list_removal_token();
-            Ok(vec![
-                Command::new(
-                    "LSET",
-                    vec![arg(key), arg(position.to_string()), arg(&token)],
-                ),
-                Command::new("LREM", vec![arg(key), arg("0"), arg(&token)]),
-            ])
+            Ok(vec![build_list_delete(key, position)])
         }
         "stream" => Err(AppError::Unsupported(
             "Redis Streams entries are read-only in the value editor".into(),
@@ -349,12 +387,47 @@ pub fn build_hexpire_field(key: &str, field: &[u8], ttl: i64) -> Command {
     )
 }
 
+/// Millisecond-precision variant of [`build_hexpire_field`] (Redis 7.4+).
+pub fn build_hpexpire_field(key: &str, field: &[u8], ttl_ms: i64) -> Command {
+    Command::new(
+        "HPEXPIRE",
+        vec![
+            arg(key),
+            arg(ttl_ms.to_string()),
+            arg("FIELDS"),
+            arg("1"),
+            field.to_vec(),
+        ],
+    )
+}
+
 pub fn build_delete_keys(keys: &[String]) -> Command {
     let mut args = Vec::with_capacity(keys.len());
     for key in keys {
         args.push(arg(key));
     }
     Command::new("DEL", args)
+}
+
+/// Estimated request-byte ceiling for one pipeline/DEL round trip. A small
+/// batch of very long key names can still build a multi-megabyte request, so
+/// bulk operations split by both item count and estimated bytes.
+const MAX_BATCH_BYTES: usize = 2 * 1024 * 1024;
+
+/// End index of a key batch bounded by `max_count` and `MAX_BATCH_BYTES`.
+/// Always advances by at least one key, so callers cannot loop forever.
+fn batch_end(keys: &[String], start: usize, max_count: usize) -> usize {
+    let mut bytes = 0usize;
+    let mut end = start;
+    while end < keys.len() && end - start < max_count {
+        let cost = keys[end].len() + 16; // command name + RESP framing overhead
+        if end > start && bytes + cost > MAX_BATCH_BYTES {
+            break;
+        }
+        bytes += cost;
+        end += 1;
+    }
+    end
 }
 
 pub fn build_flush_db() -> Command {
@@ -401,6 +474,11 @@ pub fn build_new_key(request: &NewKeyRequest) -> AppResult<Vec<Command>> {
         }
         "zset" => {
             let score = request.score.unwrap_or(0.0);
+            if !score.is_finite() {
+                return Err(AppError::Invalid(
+                    "The score must be a finite number".into(),
+                ));
+            }
             Ok(vec![Command::new(
                 "ZADD",
                 vec![arg(key), arg(score.to_string()), arg(&value)],
@@ -489,7 +567,7 @@ async fn run_pipeline(
 }
 
 fn integer(value: &redis::Value) -> i64 {
-    redis::from_redis_value::<i64>(value).unwrap_or(0)
+    redis::from_redis_value::<i64>(value.clone()).unwrap_or(0)
 }
 
 pub async fn save_string_value(
@@ -515,7 +593,7 @@ pub async fn update_row(
     // Hash field TTLs are per-field (Redis 7.4+). Read the remaining TTL before
     // the write and re-apply it to the (possibly renamed) field afterwards, so
     // editing a value cannot silently turn an expiring field into a permanent
-    // one. Older servers without HTTL/HEXPIRE simply skip this step.
+    // one. Older servers without HPTTL/HPEXPIRE fall back to seconds.
     let field_ttl = if key_type == "hash" {
         hash_field_ttl(conn, config, key, &old[0]).await
     } else {
@@ -524,25 +602,51 @@ pub async fn update_row(
 
     run_all(conn, config, &commands).await?;
 
-    if let Some(ttl) = field_ttl.filter(|ttl| *ttl > 0) {
-        run_all(conn, config, &[build_hexpire_field(key, &new[0], ttl)]).await?;
+    if let Some(ttl) = field_ttl {
+        let command = match ttl {
+            FieldTtl::Millis(millis) => build_hpexpire_field(key, &new[0], millis),
+            FieldTtl::Seconds(seconds) => build_hexpire_field(key, &new[0], seconds),
+        };
+        run_all(conn, config, &[command]).await?;
     }
     Ok(())
 }
 
-/// Reads `HTTL key FIELDS 1 field` and returns the remaining seconds, or `None`
-/// when the field has no TTL (-1), is gone (-2) or the server does not support
-/// field expiration. Errors are swallowed on purpose: preserving a field TTL is
-/// best-effort and must never block the actual value edit.
+/// Remaining expiry of a hash field, with the unit the server reported.
+enum FieldTtl {
+    Millis(i64),
+    Seconds(i64),
+}
+
+/// Prefer `HPTTL` (milliseconds, Redis 7.4+) and fall back to `HTTL` when the
+/// server does not know the command. Errors are swallowed on purpose:
+/// preserving a field TTL is best-effort and must never block the value edit.
 async fn hash_field_ttl(
     conn: &mut ConnectionManager,
     config: &ConnectionConfig,
     key: &str,
     field: &[u8],
+) -> Option<FieldTtl> {
+    if let Some(ttl) = field_ttl_command(conn, config, key, field, "HPTTL").await {
+        return (ttl > 0).then_some(FieldTtl::Millis(ttl));
+    }
+    let ttl = field_ttl_command(conn, config, key, field, "HTTL").await?;
+    (ttl > 0).then_some(FieldTtl::Seconds(ttl))
+}
+
+/// Runs `<command> key FIELDS 1 field` and returns the raw TTL. `None` means the
+/// command itself failed (e.g. an older server without field expiration); a
+/// negative TTL (-1 no expiry, -2 missing field) is returned as-is.
+async fn field_ttl_command(
+    conn: &mut ConnectionManager,
+    config: &ConnectionConfig,
+    key: &str,
+    field: &[u8],
+    command: &str,
 ) -> Option<i64> {
     let reply: redis::Value = query_with_timeout(
         execute_timeout(config),
-        redis::cmd("HTTL")
+        redis::cmd(command)
             .arg(key)
             .arg("FIELDS")
             .arg(1)
@@ -551,14 +655,13 @@ async fn hash_field_ttl(
     )
     .await
     .ok()?;
-    let ttl = match reply {
+    match reply {
         redis::Value::Array(items) => items
             .first()
-            .and_then(|value| redis::from_redis_value::<i64>(value).ok()),
+            .and_then(|value| redis::from_redis_value::<i64>(value.clone()).ok()),
         redis::Value::Int(value) => Some(value),
         _ => None,
-    }?;
-    (ttl > 0).then_some(ttl)
+    }
 }
 
 pub async fn add_row(
@@ -591,6 +694,27 @@ pub async fn delete_row(
 ) -> AppResult<()> {
     let old = decode_cells(old)?;
     let commands = build_delete_row(key_type, key, &old, position)?;
+
+    // The list delete is a single atomic EVAL; surface index/type errors that
+    // the script reports instead of pretending every reply is success.
+    if let [command] = commands.as_slice() {
+        if command.name == "EVAL" {
+            let reply = run(conn, config, command).await?;
+            return match integer(&reply) {
+                1 => Ok(()),
+                -2 => Err(AppError::Message(
+                    "The list row index is out of range".into(),
+                )),
+                -3 => Err(AppError::Message(
+                    "The key is no longer a list".into(),
+                )),
+                status => Err(AppError::Message(format!(
+                    "Deleting the list row failed (status {status})"
+                ))),
+            };
+        }
+    }
+
     run_all(conn, config, &commands).await
 }
 
@@ -675,12 +799,13 @@ pub async fn delete_keys(
     keys: &[String],
 ) -> AppResult<u64> {
     let mut deleted = 0u64;
-    for chunk in keys.chunks(500) {
-        if chunk.is_empty() {
-            continue;
-        }
-        let reply = run(conn, config, &build_delete_keys(chunk)).await?;
+    let mut start = 0usize;
+    while start < keys.len() {
+        // 500 keys per DEL, but also stay under the request-byte ceiling.
+        let end = batch_end(keys, start, 500);
+        let reply = run(conn, config, &build_delete_keys(&keys[start..end])).await?;
         deleted += integer(&reply).max(0) as u64;
+        start = end;
     }
     Ok(deleted)
 }
@@ -774,6 +899,10 @@ fn validate_bulk_ttl(ttl: i64) -> AppResult<()> {
 /// Bulk "Set TTL for multiple keys": SCAN the pattern, then send EXPIRE/PERSIST
 /// in small pipelines. `0` means PERSIST (never `EXPIRE 0`, which would delete
 /// the key); negative values are rejected instead of deleting keys.
+///
+/// `limit` counts keys that were *attempted*, not keys whose expiry changed:
+/// PERSIST returns 0 for a key without a TTL, and using the changed count as
+/// the limit would keep scanning the entire database in that case.
 pub async fn set_ttl_by_pattern(
     conn: &mut ConnectionManager,
     config: &ConnectionConfig,
@@ -782,30 +911,36 @@ pub async fn set_ttl_by_pattern(
     limit: u64,
 ) -> AppResult<u64> {
     validate_bulk_ttl(ttl)?;
+    if limit == 0 {
+        return Ok(0);
+    }
     const PIPELINE_BATCH: usize = 200;
     let mut cursor = 0u64;
+    let mut processed = 0u64;
     let mut changed = 0u64;
 
     loop {
         let (next, keys) = scan_pattern_page(conn, config, cursor, pattern).await?;
-        let commands: Vec<Command> = keys
-            .iter()
-            .map(|key| build_ttl_command(key, ttl))
-            .collect();
-        // Never overshoot the caller's safety limit: a pipeline batch is sized
-        // by the number of keys we may still touch.
-        let remaining = limit.saturating_sub(changed) as usize;
-        if remaining == 0 {
-            return Ok(changed);
-        }
-        for batch in commands.chunks(PIPELINE_BATCH.min(remaining).max(1)) {
-            let replies = run_pipeline(conn, config, batch).await?;
+
+        // Truncate the page to how many keys we may still attempt, then split
+        // that slice by both count and estimated request bytes.
+        let remaining = usize::try_from(limit.saturating_sub(processed)).unwrap_or(usize::MAX);
+        let keys = &keys[..keys.len().min(remaining)];
+
+        let mut start = 0usize;
+        while start < keys.len() {
+            let end = batch_end(keys, start, PIPELINE_BATCH);
+            let batch: Vec<Command> = keys[start..end]
+                .iter()
+                .map(|key| build_ttl_command(key, ttl))
+                .collect();
+            let replies = run_pipeline(conn, config, &batch).await?;
             changed += replies.iter().filter(|reply| **reply > 0).count() as u64;
-            if changed >= limit {
-                return Ok(changed);
-            }
+            processed += (end - start) as u64;
+            start = end;
         }
-        if next == 0 {
+
+        if processed >= limit || next == 0 {
             break;
         }
         cursor = next;
@@ -814,8 +949,64 @@ pub async fn set_ttl_by_pattern(
     Ok(changed)
 }
 
+/// Sends a pipeline and returns one raw reply per command. Server errors are
+/// raised by the pipeline as a single error, so callers that need per-key
+/// attribution replay the batch on failure.
+async fn run_value_pipeline(
+    conn: &mut ConnectionManager,
+    config: &ConnectionConfig,
+    commands: &[Command],
+) -> AppResult<Vec<redis::Value>> {
+    let mut pipe = redis::pipe();
+    for command in commands {
+        let item = pipe.cmd(command.name);
+        for value in &command.args {
+            item.arg(value);
+        }
+    }
+    let replies: Vec<redis::Value> =
+        query_with_timeout(execute_timeout(config), pipe.query_async(conn)).await?;
+    Ok(replies)
+}
+
+/// Keys per SCAN/DUMP batch before the byte ceiling is applied.
+const COPY_SCAN_BATCH: usize = 150;
+
+/// End index of a RESTORE batch bounded by `COPY_SCAN_BATCH` and
+/// `MAX_BATCH_BYTES`. DUMP payloads dominate the request size.
+fn restore_batch_end(payloads: &[(String, Vec<u8>)], start: usize) -> usize {
+    let mut bytes = 0usize;
+    let mut end = start;
+    while end < payloads.len() && end - start < COPY_SCAN_BATCH {
+        let cost = payloads[end].0.len() + payloads[end].1.len() + 24;
+        if end > start && bytes + cost > MAX_BATCH_BYTES {
+            break;
+        }
+        bytes += cost;
+        end += 1;
+    }
+    end
+}
+
+fn finish_copy(copied: u64, skipped: u64, failures: &[String]) -> AppResult<u64> {
+    if failures.is_empty() {
+        return Ok(copied);
+    }
+    let shown = failures
+        .iter()
+        .take(5)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("; ");
+    Err(AppError::Message(format!(
+        "Copied {copied} key(s), skipped {skipped}; {} key(s) failed: {shown}",
+        failures.len()
+    )))
+}
+
 /// Copy keys to another connection/database: DUMP on the source, RESTORE on
-/// the target (CopyOperation's cluster-compatible approach).
+/// the target (CopyOperation's cluster-compatible approach), batched into
+/// pipelines so a 10k-key copy does not cost 20k round trips.
 #[allow(clippy::too_many_arguments)]
 pub async fn copy_keys(
     source: &mut ConnectionManager,
@@ -832,36 +1023,116 @@ pub async fn copy_keys(
     }
     let mut cursor = 0u64;
     let mut copied = 0u64;
+    let mut skipped = 0u64;
+    let mut failures: Vec<String> = Vec::new();
 
     loop {
         let (next, keys) = scan_pattern_page(source, source_config, cursor, pattern).await?;
-        for key in &keys {
-            let payload: Vec<u8> = query_with_timeout(
-                execute_timeout(source_config),
-                redis::cmd("DUMP").arg(key).query_async(source),
-            )
-            .await?;
-            if payload.is_empty() {
+        let mut start = 0usize;
+        while start < keys.len() {
+            let remaining = usize::try_from(limit.saturating_sub(copied)).unwrap_or(usize::MAX);
+            if remaining == 0 {
+                return finish_copy(copied, skipped, &failures);
+            }
+            let end = batch_end(&keys, start, COPY_SCAN_BATCH.min(remaining));
+            let batch = &keys[start..end];
+            start = end;
+
+            // One DUMP pipeline for the whole batch.
+            let dump_commands: Vec<Command> = batch
+                .iter()
+                .map(|key| Command::new("DUMP", vec![arg(key)]))
+                .collect();
+            let dump_replies = run_value_pipeline(source, source_config, &dump_commands).await?;
+
+            let mut payloads: Vec<(String, Vec<u8>)> = Vec::new();
+            for (key, reply) in batch.iter().zip(dump_replies.iter()) {
+                match reply {
+                    redis::Value::BulkString(payload) if !payload.is_empty() => {
+                        payloads.push((key.clone(), payload.clone()));
+                    }
+                    // The key vanished between SCAN and DUMP.
+                    _ => skipped += 1,
+                }
+            }
+            if payloads.is_empty() {
                 continue;
             }
-            run(
-                target,
-                target_config,
-                &build_copy_restore(key, ttl_seconds, &payload, replace),
-            )
-            .await?;
-            copied += 1;
-            if copied >= limit {
-                return Ok(copied);
+
+            // Keep the "do not overwrite" semantics: filter existing targets
+            // before RESTORE so a BUSYKEY never has to be guessed from a
+            // pipeline-wide error.
+            if !replace {
+                let exists_commands: Vec<Command> = payloads
+                    .iter()
+                    .map(|(key, _)| Command::new("EXISTS", vec![arg(key)]))
+                    .collect();
+                let exists_replies =
+                    run_value_pipeline(target, target_config, &exists_commands).await?;
+                payloads = payloads
+                    .into_iter()
+                    .zip(exists_replies.iter())
+                    .filter_map(|((key, payload), reply)| {
+                        if integer(reply) > 0 {
+                            skipped += 1;
+                            None
+                        } else {
+                            Some((key, payload))
+                        }
+                    })
+                    .collect();
+            }
+
+            let mut index = 0usize;
+            while index < payloads.len() {
+                let end = restore_batch_end(&payloads, index);
+                let slice = &payloads[index..end];
+                index = end;
+                let restore_commands: Vec<Command> = slice
+                    .iter()
+                    .map(|(key, payload)| build_copy_restore(key, ttl_seconds, payload, replace))
+                    .collect();
+
+                match run_value_pipeline(target, target_config, &restore_commands).await {
+                    Ok(_) => copied += slice.len() as u64,
+                    Err(_) => {
+                        // The pipeline reports only the first server error. Replay
+                        // this slice one key at a time to attribute failures.
+                        // Existing targets were filtered above, so a BUSYKEY here
+                        // means the failed pipeline already restored this key.
+                        for (key, payload) in slice {
+                            match run(
+                                target,
+                                target_config,
+                                &build_copy_restore(key, ttl_seconds, payload, replace),
+                            )
+                            .await
+                            {
+                                Ok(_) => copied += 1,
+                                Err(AppError::Redis(error))
+                                    if error.to_string().contains("BUSYKEY") =>
+                                {
+                                    copied += 1;
+                                }
+                                Err(error) => failures.push(format!("{key}: {error}")),
+                            }
+                        }
+                    }
+                }
+
+                if copied >= limit {
+                    return finish_copy(copied, skipped, &failures);
+                }
             }
         }
+
         if next == 0 {
             break;
         }
         cursor = next;
     }
 
-    Ok(copied)
+    finish_copy(copied, skipped, &failures)
 }
 
 pub async fn create_key(
@@ -985,6 +1256,43 @@ mod tests {
     }
 
     #[test]
+    fn zset_rejects_non_finite_scores() {
+        for score in ["NaN", "inf", "-inf", "Infinity"] {
+            assert!(
+                build_update_row(
+                    "zset",
+                    "z",
+                    &plain(&["member", "1"]),
+                    &plain(&["member", score]),
+                    None
+                )
+                .is_err(),
+                "{score} must be rejected"
+            );
+            assert!(parse_score(score.as_bytes()).is_err(), "{score} must be rejected");
+        }
+        assert!(parse_score(b"2.5").is_ok());
+    }
+
+    #[test]
+    fn new_zset_key_rejects_non_finite_score() {
+        let mut request = NewKeyRequest {
+            key: "z".into(),
+            key_type: "zset".into(),
+            value: Some("member".into()),
+            field: None,
+            score: Some(f64::NAN),
+            members: None,
+            id: None,
+        };
+        assert!(build_new_key(&request).is_err());
+        request.score = Some(f64::INFINITY);
+        assert!(build_new_key(&request).is_err());
+        request.score = Some(1.5);
+        assert!(build_new_key(&request).is_ok());
+    }
+
+    #[test]
     fn list_update_uses_lset_with_position() {
         let update =
             build_update_row("list", "l", &plain(&["old"]), &plain(&["new"]), Some(3)).unwrap();
@@ -993,27 +1301,25 @@ mod tests {
     }
 
     #[test]
-    fn list_delete_uses_unique_placeholder_then_lrem() {
+    fn list_delete_uses_one_atomic_lua_script() {
         let delete = build_delete_row("list", "l", &plain(&["old"]), Some(-1)).unwrap();
-        assert_eq!(delete[0].name, "LSET");
-        assert_eq!(delete[0].args[0], b"l".to_vec());
-        assert_eq!(delete[0].args[1], b"-1".to_vec());
+        assert_eq!(delete.len(), 1, "a single EVAL keeps LSET+LREM atomic");
+        let command = &delete[0];
+        assert_eq!(command.name, "EVAL");
+        assert_eq!(command.args[0], LIST_DELETE_SCRIPT.as_bytes().to_vec());
+        assert_eq!(command.args[1], b"1".to_vec(), "one key");
+        assert_eq!(command.args[2], b"l".to_vec());
+        assert_eq!(command.args[4], b"-1".to_vec());
 
-        let token = delete[0].args[2].clone();
+        let token = command.args[3].clone();
         let token_text = String::from_utf8(token.clone()).unwrap();
         // A random marker can never collide with a value already in the list.
         assert!(token_text.starts_with("__resp_deleted_"));
         assert!(token_text.ends_with("__"));
-        assert!(token_text.len() > "__resp_deleted____".len());
-
-        assert_eq!(delete[1].name, "LREM");
-        assert_eq!(delete[1].args[0], b"l".to_vec());
-        assert_eq!(delete[1].args[1], b"0".to_vec());
-        assert_eq!(delete[1].args[2], token, "LREM must use the same marker");
 
         // Two deletions must never share a marker.
         let second = build_delete_row("list", "l", &plain(&["old"]), Some(0)).unwrap();
-        assert_ne!(second[0].args[2], token);
+        assert_ne!(second[0].args[3], token);
     }
 
     #[test]
@@ -1094,6 +1400,29 @@ mod tests {
         let restore = build_hexpire_field("h", b"f", 120);
         assert_eq!(restore.name, "HEXPIRE");
         assert_eq!(restore.args, plain(&["h", "120", "FIELDS", "1", "f"]));
+    }
+
+    #[test]
+    fn hash_field_ttl_restore_prefers_milliseconds() {
+        let restore = build_hpexpire_field("h", b"f", 120_500);
+        assert_eq!(restore.name, "HPEXPIRE");
+        assert_eq!(
+            restore.args,
+            plain(&["h", "120500", "FIELDS", "1", "f"])
+        );
+    }
+
+    #[test]
+    fn key_batches_respect_count_and_byte_limits() {
+        let keys: Vec<String> = vec!["a".into(), "b".into(), "c".into()];
+        assert_eq!(batch_end(&keys, 0, 2), 2);
+        assert_eq!(batch_end(&keys, 2, 2), 3);
+
+        // One huge key is still returned alone so batching always progresses.
+        let long = "x".repeat(MAX_BATCH_BYTES + 1);
+        let huge = vec![long.clone(), "tail".into()];
+        assert_eq!(batch_end(&huge, 0, 500), 1);
+        assert_eq!(batch_end(&huge, 1, 500), 2);
     }
 
     #[test]

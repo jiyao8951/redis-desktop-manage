@@ -18,6 +18,7 @@ import type {
 import { isBinary, textOf } from "./formatters";
 import type { FormatterId } from "./formatters";
 import Pagination from "./Pagination";
+import { searchTargetsFor, type SearchTarget, type ValueSearch } from "./search";
 import ValueEditorPane from "./ValueEditorPane";
 import ValueTable from "./ValueTable";
 
@@ -246,6 +247,11 @@ export default function ValueTab({
   const [rowsLoading, setRowsLoading] = useState(false);
   const [reverse, setReverse] = useState(false);
   const [filter, setFilter] = useState("");
+  /** Backend full-key search result; null means the normal paged view. */
+  const [search, setSearch] = useState<ValueSearch | null>(null);
+  const [searching, setSearching] = useState(false);
+  /** Flipped to false when the backend ignores the search parameters. */
+  const [searchSupported, setSearchSupported] = useState(true);
 
   const [bytes, setBytes] = useState<Uint8Array>(new Uint8Array());
   const [loadedBytes, setLoadedBytes] = useState(0);
@@ -466,6 +472,9 @@ export default function ValueTab({
     setSelected(null);
     setPage(0);
     setIndexedPage(null);
+    setSearch(null);
+    setSearching(false);
+    setSearchSupported(true);
     setCursorState([], "0", false);
     setBytes(new Uint8Array());
     setLoadedBytes(0);
@@ -502,6 +511,83 @@ export default function ValueTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionId, db, keyName]);
 
+  /**
+   * Full-key search. The backend may not implement `matchPattern` yet: Tauri
+   * silently drops unknown arguments, so a missing `scanned` count is the
+   * capability probe that tells us to keep the local filter only.
+   */
+  const runSearch = useCallback(
+    async (pattern: string, target: SearchTarget, append = false) => {
+      if (!info) return;
+      const trimmed = pattern.trim();
+      if (!trimmed) {
+        onNotify(t("value.searchPatternRequired"));
+        return;
+      }
+      const ticket = seq.current;
+      setSearching(true);
+      setError(null);
+      try {
+        const result = await ipc.readValuePage({
+          connectionId,
+          db,
+          key: keyName,
+          keyType: info.keyType,
+          cursor: append ? (search?.cursor ?? "0") : "0",
+          start: 0,
+          count: cursorFetchSize,
+          reverse,
+          matchPattern: trimmed,
+          matchTarget: target,
+        });
+        if (seq.current !== ticket) return;
+        if (typeof result.scanned !== "number") {
+          setSearchSupported(false);
+          setSearch(null);
+          onNotify(t("table.searchUnsupported"));
+          return;
+        }
+        const next = decodeValuePage(result);
+        setSearchSupported(true);
+        setSelected(null);
+        setSearch((previous) =>
+          append && previous
+            ? {
+                ...previous,
+                rows: [...previous.rows, ...next.rows],
+                scanned: (previous.scanned ?? 0) + (result.scanned ?? 0),
+                done: next.done || next.rows.length === 0,
+                cursor: next.cursor,
+              }
+            : {
+                pattern: trimmed,
+                target,
+                rows: next.rows,
+                scanned: result.scanned ?? 0,
+                done: next.done || next.rows.length === 0,
+                cursor: next.cursor,
+              },
+        );
+        setPage(0);
+      } catch (e) {
+        if (seq.current !== ticket) return;
+        const message = errMessage(e);
+        onNotify(t("table.searchFailed", { error: message }));
+        onLog(t("table.searchFailed", { error: message }), "error");
+      } finally {
+        // Reset unconditionally: a reload invalidates the ticket mid-flight,
+        // and gating this reset left the search button spinning forever.
+        setSearching(false);
+      }
+    },
+    [connectionId, cursorFetchSize, db, info, keyName, onLog, onNotify, reverse, search, t],
+  );
+
+  const clearSearch = useCallback(() => {
+    setSearch(null);
+    setSearching(false);
+  }, []);
+
   const meta = info;
   const isCursorMode = meta ? cursorPaged(meta.keyType) : false;
 
@@ -537,13 +623,21 @@ export default function ValueTab({
     [isCursorMode, acc, page, pageSize, indexedPage],
   );
 
+  /** Search results replace the paged rows; the local filter applies to both. */
+  const sourceRows = useMemo(
+    () => (search ? search.rows : pageRows),
+    [pageRows, search],
+  );
+
   const rows = useMemo(() => {
-    if (!filter) return pageRows;
+    if (!filter) return sourceRows;
     const needle = filter.toLowerCase();
-    return pageRows.filter((row) =>
+    return sourceRows.filter((row) =>
       row.columns.some((cell) => cell.payload.toLowerCase().includes(needle)),
     );
-  }, [pageRows, filter]);
+  }, [sourceRows, filter]);
+
+  const searchTargets = useMemo(() => (meta ? searchTargetsFor(meta.keyType) : []), [meta]);
 
   const columns = useMemo(
     () =>
@@ -627,6 +721,7 @@ export default function ValueTab({
 
   const changeReverse = async (value: boolean) => {
     setReverse(value);
+    setSearch(null);
     if (!meta || isCursorMode) return;
     setPage(0);
     await loadIndexed(meta, 0, value);
@@ -668,7 +763,7 @@ export default function ValueTab({
     }
   };
 
-  const selectedRowData = pageRows.find((row) => row.row === selected?.row) ?? null;
+  const selectedRowData = sourceRows.find((row) => row.row === selected?.row) ?? null;
   const selectedCell = selectedRowData?.columns[selected?.column ?? 0] ?? null;
   const selectedLabel = selected
     ? t("value.rowLabel", {
@@ -677,8 +772,14 @@ export default function ValueTab({
       })
     : t("common.value");
 
+  // List positions are index-based, and a server-side search does not report
+  // them, so list cells stay read-only while search results are shown.
   const canEditCell = Boolean(
-    meta && meta.keyType !== "stream" && selectedCell && selectedCell.encoding === "utf8",
+    meta &&
+      meta.keyType !== "stream" &&
+      selectedCell &&
+      selectedCell.encoding === "utf8" &&
+      !(search && meta.keyType === "list"),
   );
 
   const listPosition = (row: number) => (reverse ? -(row + 1) : row);
@@ -955,6 +1056,7 @@ export default function ValueTab({
             formatter={formatter}
             limit={sizeLimit}
             editing={fullyLoaded && !stringBinary}
+            truncated={partialLoad}
             sourceText={stringText}
             editKey={`string:${dataVersion}`}
             saving={saving}
@@ -988,7 +1090,7 @@ export default function ValueTab({
                 <Button
                   variant="danger"
                   onClick={() => void deleteRow()}
-                  disabled={!selectedRowData || saving}
+                  disabled={!selectedRowData || saving || Boolean(search)}
                 >
                   <Icon name="trash" className="h-3.5 w-3.5" />
                   {t("value.deleteRow")}
@@ -997,7 +1099,7 @@ export default function ValueTab({
             ) : (
               <span>{t("value.newestFirst")}</span>
             )}
-            {isCursorMode ? (
+            {isCursorMode && !search ? (
               <span
                 className="ml-auto shrink-0 truncate t-12 text-muted"
                 title={t("value.cursorStatus", {
@@ -1020,20 +1122,32 @@ export default function ValueTab({
             loading={rowsLoading}
             filter={filter}
             onFilter={setFilter}
+            loadedRows={sourceRows.length}
+            searchTargets={searchTargets}
+            search={search}
+            searching={searching}
+            searchSupported={searchSupported}
+            onSearch={(pattern, target) => void runSearch(pattern, target)}
+            onSearchMore={() => {
+              if (search) void runSearch(search.pattern, search.target, true);
+            }}
+            onClearSearch={clearSearch}
             onSelect={handleSelect}
           />
-          <Pagination
-            page={page}
-            pageCount={pageCount}
-            loaded={loadedCount}
-            total={total}
-            pageSize={pageSize}
-            prevDisabled={page === 0 || rowsLoading}
-            nextDisabled={nextDisabled}
-            onPrev={() => void goPrev()}
-            onNext={() => void goNext()}
-            onGoTo={(target) => void goTo(target)}
-          />
+          {search ? null : (
+            <Pagination
+              page={page}
+              pageCount={pageCount}
+              loaded={loadedCount}
+              total={total}
+              pageSize={pageSize}
+              prevDisabled={page === 0 || rowsLoading}
+              nextDisabled={nextDisabled}
+              onPrev={() => void goPrev()}
+              onNext={() => void goNext()}
+              onGoTo={(target) => void goTo(target)}
+            />
+          )}
           <ValueEditorPane
             label={selectedLabel}
             cell={selectedCell}

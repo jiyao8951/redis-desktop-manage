@@ -37,10 +37,15 @@ pub async fn save_connection(
     let app = state.inner();
     let saved = with_db(app, move |conn| db::save_config(conn, config)).await?;
 
-    // Force the next tree expansion to reconnect with the new settings.
+    // Force the next tree expansion to reconnect with the new settings, and
+    // drop every long-lived subscription that still holds the previous host,
+    // password or protocol. Order matters: pooled managers and subscriptions
+    // first, then the cached config so a concurrent reader cannot reconnect
+    // with the old settings and repopulate the cache.
     app.pool.invalidate(&saved.id).await;
-    app.invalidate_config(&saved.id).await;
+    app.live.stop_connection(&saved.id).await;
     app.monitor.stop(&saved.id).await;
+    app.invalidate_config(&saved.id).await;
     Ok(saved)
 }
 
@@ -111,7 +116,12 @@ pub fn parse_redis_url(url: String) -> AppResult<ConnectionConfig> {
 pub async fn import_connections(state: State<'_, AppState>, path: String) -> AppResult<usize> {
     let app = state.inner();
     let imported = with_db(app, move |conn| db::import_file(conn, &PathBuf::from(path))).await?;
+    // An import replaces the whole connection list, so every pooled manager,
+    // Live Update subscription and MONITOR stream may belong to a config that
+    // no longer matches what the file contained.
     app.pool.invalidate_all().await;
+    app.live.stop_all().await;
+    app.monitor.stop_all().await;
     app.invalidate_all_configs().await;
     Ok(imported)
 }

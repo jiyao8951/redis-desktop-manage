@@ -8,7 +8,21 @@ import SettingsDialog from "./features/shell/SettingsDialog";
 import LogDrawer from "./features/shell/LogDrawer";
 import ServerOverview from "./features/shell/ServerOverview";
 import ConnectionDialog from "./features/connections/ConnectionDialog";
+import QuickConnectionsDialog, {
+  type QuickConnectionsMode,
+} from "./features/connections/QuickConnectionsDialog";
 import ConnectionTree from "./features/tree/ConnectionTree";
+import DangerDialog from "./components/ui/DangerDialog";
+import { Icon } from "./components/ui/Icon";
+import {
+  DEFAULT_SIDEBAR_WIDTH,
+  loadFavoriteConnections,
+  loadRecentConnections,
+  loadSidebarWidth,
+  saveSidebarWidth,
+  touchRecentConnection,
+  type RecentConnection,
+} from "./features/tree/treePrefs";
 import ValueTab from "./features/value/ValueTab";
 import ConsoleTab from "./features/console/ConsoleTab";
 import ServerActionsTab from "./features/server/ServerActionsTab";
@@ -69,7 +83,16 @@ export default function App() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [treeVisible, setTreeVisible] = useState(true);
-  const [sidebarWidth, setSidebarWidth] = useState(320);
+  const [sidebarWidth, setSidebarWidth] = useState(() =>
+    loadSidebarWidth(SIDEBAR_MIN, SIDEBAR_MAX),
+  );
+  const [quickPicker, setQuickPicker] = useState<{
+    mode: QuickConnectionsMode;
+    favorites: Set<string>;
+    recent: RecentConnection[];
+  } | null>(null);
+  const [closeAllOpen, setCloseAllOpen] = useState(false);
+  const [closeAllBusy, setCloseAllBusy] = useState(false);
   const [revision, setRevision] = useState(0);
   /** Signals ConnectionTree to drop the cached view of an already-closed connection. */
   const [externalClose, setExternalClose] = useState<{ id: string; token: number } | null>(null);
@@ -78,6 +101,7 @@ export default function App() {
   const logId = useRef(0);
   const consoleSeq = useRef(0);
   const dragging = useRef(false);
+  const sidebarWidthRef = useRef(sidebarWidth);
   const closeToken = useRef(0);
   /** Tab ids whose active editor holds unsaved changes. */
   const dirtyTabs = useRef<Set<string>>(new Set());
@@ -170,10 +194,13 @@ export default function App() {
     const onMove = (event: MouseEvent) => {
       if (!dragging.current) return;
       const width = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, event.clientX));
+      sidebarWidthRef.current = width;
       setSidebarWidth(width);
     };
     const onUp = () => {
+      if (!dragging.current) return;
       dragging.current = false;
+      saveSidebarWidth(sidebarWidthRef.current);
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
@@ -231,6 +258,7 @@ export default function App() {
       try {
         const facts = await ipc.serverFacts(connection.id);
         setTabs((prev) => prev.map((tab) => (tab.id === tabId ? { ...tab, facts } : tab)));
+        touchRecentConnection(connection.id);
       } catch (e) {
         const message = errMessage(e);
         setTabs((prev) =>
@@ -239,6 +267,48 @@ export default function App() {
         log(`${connection.name}: ${message}`, "error");
       }
     })();
+  };
+
+  const openQuickConnections = (mode: QuickConnectionsMode) => {
+    setQuickPicker({
+      mode,
+      favorites: loadFavoriteConnections(),
+      recent: loadRecentConnections(),
+    });
+  };
+
+  /** Confirms possible unsaved editors before the danger dialog takes over. */
+  const requestCloseAllConnections = () => {
+    const ids = tabs.filter((tab) => tab.connectionId !== undefined).map((tab) => tab.id);
+    if (!confirmCloseTabs(ids)) return;
+    setCloseAllOpen(true);
+  };
+
+  const closeAllConnections = async () => {
+    setCloseAllBusy(true);
+    let failed = 0;
+    for (const connection of connections) {
+      try {
+        await ipc.closeConnection(connection.id);
+      } catch (e) {
+        failed += 1;
+        log(`${connection.name}: ${errMessage(e)}`, "error");
+      }
+    }
+    applyCloseTabs(tabs.filter((tab) => tab.connectionId !== undefined).map((tab) => tab.id));
+    closeToken.current += 1;
+    setExternalClose(null);
+    setRevision((v) => v + 1);
+    await loadLists();
+    setCloseAllBusy(false);
+    setCloseAllOpen(false);
+    if (failed) {
+      notify(
+        t("app.closeAllPartial", { count: Math.max(0, connections.length - failed), failed }),
+      );
+    } else {
+      notify(t("app.closedAllConnections", { count: connections.length }));
+    }
   };
 
   const markTabDirty = (id: string, dirty: boolean) => {
@@ -466,6 +536,12 @@ export default function App() {
           onOpenWelcome={openWelcomeTab}
           onOpenLog={() => setLogOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
+          onOpenRecent={() => openQuickConnections("recent")}
+          onOpenFavorites={() => openQuickConnections("favorites")}
+          onCloseAllConnections={requestCloseAllConnections}
+          onFocusValueEditor={() => setTreeVisible(false)}
+          treeVisible={treeVisible}
+          hasConnections={connections.length > 0}
         />
         <TabBar
           tabs={tabs}
@@ -516,14 +592,31 @@ export default function App() {
                 onMouseDown={() => {
                   dragging.current = true;
                 }}
+                onDoubleClick={() => {
+                  sidebarWidthRef.current = DEFAULT_SIDEBAR_WIDTH;
+                  setSidebarWidth(DEFAULT_SIDEBAR_WIDTH);
+                  saveSidebarWidth(DEFAULT_SIDEBAR_WIDTH);
+                }}
                 role="separator"
                 aria-orientation="vertical"
                 aria-label={t("app.resizeTree")}
+                title={t("app.resizeTreeReset")}
               />
             </>
           ) : null}
 
           <main className="relative min-w-0 flex-1 overflow-hidden">
+            {!treeVisible ? (
+              <button
+                type="button"
+                className="absolute left-2 top-2 z-20 inline-flex items-center gap-1 rounded-sm border border-border bg-base/95 px-2 py-1 t-12 text-muted shadow-sm transition-colors hover:text-text"
+                onClick={() => setTreeVisible(true)}
+                title={t("app.showTree")}
+              >
+                <Icon name="sidebar" />
+                {t("app.showTree")}
+              </button>
+            ) : null}
             {activeTab.kind === "welcome" ? (
               <WelcomeTab onAddConnection={openNewConnection} />
             ) : activeTab.kind === "console" &&
@@ -625,6 +718,35 @@ export default function App() {
               setQuickStart(false);
             }}
             onConnect={openNewConnection}
+          />
+        ) : null}
+
+        {quickPicker ? (
+          <QuickConnectionsDialog
+            mode={quickPicker.mode}
+            connections={connections}
+            favorites={quickPicker.favorites}
+            recent={quickPicker.recent}
+            onOpen={(connection) => {
+              setQuickPicker(null);
+              openServerTab(connection);
+            }}
+            onClose={() => setQuickPicker(null)}
+          />
+        ) : null}
+
+        {closeAllOpen ? (
+          <DangerDialog
+            title={t("app.closeAllTitle")}
+            description={`${t("app.closeAllDescription")}\n\n${t("app.closeAllCount", {
+              count: connections.length,
+            })}`}
+            confirmLabel={t("app.closeAllConfirm")}
+            busy={closeAllBusy}
+            onConfirm={() => void closeAllConnections()}
+            onClose={() => {
+              if (!closeAllBusy) setCloseAllOpen(false);
+            }}
           />
         ) : null}
       </div>

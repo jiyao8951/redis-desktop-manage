@@ -12,6 +12,12 @@ export default function Toolbar({
   onOpenWelcome,
   onOpenLog,
   onOpenSettings,
+  onOpenRecent,
+  onOpenFavorites,
+  onCloseAllConnections,
+  onFocusValueEditor,
+  treeVisible,
+  hasConnections,
 }: {
   onAddConnection: () => void;
   onImport: () => void;
@@ -20,6 +26,12 @@ export default function Toolbar({
   onOpenWelcome: () => void;
   onOpenLog: () => void;
   onOpenSettings: () => void;
+  onOpenRecent: () => void;
+  onOpenFavorites: () => void;
+  onCloseAllConnections: () => void;
+  onFocusValueEditor: () => void;
+  treeVisible: boolean;
+  hasConnections: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const t = useT();
@@ -35,11 +47,40 @@ export default function Toolbar({
       onClick: onToggleTree,
     },
     {
+      key: "recent",
+      label: t("toolbar.recentConnections"),
+      icon: "log",
+      separatorBefore: true,
+      onClick: onOpenRecent,
+    },
+    {
+      key: "favorites",
+      label: t("toolbar.favoritesConnections"),
+      icon: "star",
+      onClick: onOpenFavorites,
+    },
+    {
       key: "welcome",
       label: t("toolbar.welcome"),
       icon: "database",
       separatorBefore: true,
       onClick: onOpenWelcome,
+    },
+    {
+      key: "focus-value",
+      label: t("toolbar.focusValueEditor"),
+      icon: "eye",
+      disabled: !treeVisible,
+      separatorBefore: true,
+      onClick: onFocusValueEditor,
+    },
+    {
+      key: "close-all",
+      label: t("toolbar.closeAllConnections"),
+      icon: "x",
+      danger: true,
+      disabled: !hasConnections,
+      onClick: onCloseAllConnections,
     },
   ];
 

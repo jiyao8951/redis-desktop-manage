@@ -88,6 +88,9 @@ export const ipc = {
     start: number;
     count: number;
     reverse: boolean;
+    /** Full-key search text; older backends ignore unknown arguments. */
+    matchPattern?: string | null;
+    matchTarget?: "field" | "value" | null;
   }) => invoke<ValuePage>("read_value_page", args),
 
   // Write path (original KeyModel mutations). The UI always confirms first.

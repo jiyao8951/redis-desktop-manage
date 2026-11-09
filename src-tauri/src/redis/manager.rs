@@ -18,11 +18,12 @@ pub const SSH_UNSUPPORTED_MESSAGE: &str = "The open source build of Redis Deskto
 /// Connection-manager retry policy. The redis-rs default (6 retries with a
 /// 100ms * 2^n backoff) can hide an auth/network failure for seconds; asking
 /// "Test Connection" then freezes the dialog. Two retries capped at one second
-/// keep transient reconnects working while failing fast.
+/// keep transient reconnects working while failing fast. redis 1.8 expresses
+/// the old `factor` setting as the minimum delay (both are 100ms).
 const MANAGER_RETRIES: usize = 2;
-const MANAGER_RETRY_FACTOR: u64 = 100;
-const MANAGER_RETRY_EXPONENT: u64 = 2;
-const MANAGER_RETRY_MAX_DELAY_MS: u64 = 1_000;
+const MANAGER_RETRY_MIN_DELAY: Duration = Duration::from_millis(100);
+const MANAGER_RETRY_EXPONENT: f32 = 2.0;
+const MANAGER_RETRY_MAX_DELAY: Duration = Duration::from_millis(1_000);
 
 /// One multiplexed, auto-reconnecting Redis connection per (connection id, db).
 /// Redis-rs' ConnectionManager can be cloned cheaply and is safe to use from
@@ -38,6 +39,11 @@ struct PoolInner {
     /// In-flight connection attempts, shared so concurrent cache misses only
     /// open one socket instead of one per caller.
     pending: HashMap<String, Arc<OnceCell<ConnectionManager>>>,
+    /// Per-connection generation. `invalidate` bumps it, so a connect attempt
+    /// that started with the previous settings can notice that the config
+    /// changed while it was dialling and discard the stale manager instead of
+    /// caching it.
+    generations: HashMap<String, u64>,
 }
 
 impl RedisPool {
@@ -48,6 +54,13 @@ impl RedisPool {
     /// Returns a cached manager, creating it on first use. The db index is part
     /// of the connection URL, so no SELECT command (and no cross-task db race)
     /// is involved. Concurrent misses share one connect future.
+    ///
+    /// The config can be edited while a connect is in flight. Each attempt
+    /// records the generation it started with; if `invalidate` bumped it in the
+    /// meantime, the freshly built manager is dropped and an error is returned
+    /// so the caller retries with freshly loaded settings. Reconnecting here
+    /// with the same (now stale) `config` argument would cache a manager that
+    /// still points at the old host/password.
     pub async fn get(
         &self,
         connection_id: &str,
@@ -56,16 +69,23 @@ impl RedisPool {
     ) -> AppResult<ConnectionManager> {
         let key = pool_key(connection_id, db);
 
-        let pending = {
+        let (pending, generation) = {
             let mut guard = self.inner.lock().await;
             if let Some(manager) = guard.managers.get(&key) {
                 return Ok(manager.clone());
             }
-            guard
+            // Ensure every in-flight connect has a generation entry, so
+            // `invalidate_all` can mark it as stale too.
+            let generation = *guard
+                .generations
+                .entry(connection_id.to_string())
+                .or_insert(0);
+            let pending = guard
                 .pending
                 .entry(key.clone())
                 .or_insert_with(|| Arc::new(OnceCell::new()))
-                .clone()
+                .clone();
+            (pending, generation)
         };
 
         let connected = pending
@@ -84,22 +104,43 @@ impl RedisPool {
 
         let mut guard = self.inner.lock().await;
         guard.pending.remove(&key);
+        let current = guard
+            .generations
+            .get(connection_id)
+            .copied()
+            .unwrap_or_default();
+        if current != generation {
+            // The settings were invalidated during this connect; never cache a
+            // manager built from the stale config. The caller must retry so it
+            // picks up the new settings.
+            return Err(AppError::Message(
+                "Connection settings changed while connecting; please retry".into(),
+            ));
+        }
         Ok(guard.managers.entry(key).or_insert(manager).clone())
     }
 
     /// Drops cached connections after a config edit/delete so the next access
-    /// reconnects with the new host/password/protocol.
+    /// reconnects with the new host/password/protocol. Bumping the generation
+    /// also invalidates any connect attempt that is still in flight.
     pub async fn invalidate(&self, connection_id: &str) {
         let prefix = format!("{connection_id}:");
         let mut guard = self.inner.lock().await;
         guard.managers.retain(|key, _| !key.starts_with(&prefix));
         guard.pending.retain(|key, _| !key.starts_with(&prefix));
+        *guard
+            .generations
+            .entry(connection_id.to_string())
+            .or_insert(0) += 1;
     }
 
     pub async fn invalidate_all(&self) {
         let mut guard = self.inner.lock().await;
         guard.managers.clear();
         guard.pending.clear();
+        for generation in guard.generations.values_mut() {
+            *generation += 1;
+        }
     }
 }
 
@@ -143,7 +184,7 @@ async fn connect_once(
     )
     .await
     .map_err(|_| -> redis::RedisError {
-        (ErrorKind::IoError, "connection attempt timed out").into()
+        (ErrorKind::Io, "connection attempt timed out").into()
     })??;
     Ok(manager)
 }
@@ -155,12 +196,12 @@ async fn connect_once(
 /// and leave the next small command waiting for a reconnect.
 pub fn manager_config(config: &ConnectionConfig) -> ConnectionManagerConfig {
     ConnectionManagerConfig::new()
-        .set_connection_timeout(connection_timeout(config))
-        .set_response_timeout(response_timeout(config))
+        .set_connection_timeout(Some(connection_timeout(config)))
+        .set_response_timeout(Some(response_timeout(config)))
         .set_number_of_retries(MANAGER_RETRIES)
-        .set_factor(MANAGER_RETRY_FACTOR)
+        .set_min_delay(MANAGER_RETRY_MIN_DELAY)
         .set_exponent_base(MANAGER_RETRY_EXPONENT)
-        .set_max_delay(MANAGER_RETRY_MAX_DELAY_MS)
+        .set_max_delay(MANAGER_RETRY_MAX_DELAY)
 }
 
 pub fn build_url(config: &ConnectionConfig, db: u32, resp3: bool) -> String {

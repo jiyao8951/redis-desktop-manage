@@ -134,6 +134,8 @@ export interface ValuePage {
   total: number | null;
   done: boolean;
   columns: string[];
+  /** Entries compared by a full-key search; absent on older backends. */
+  scanned?: number;
 }
 
 export interface NewKeyRequest {

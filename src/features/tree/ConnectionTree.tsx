@@ -2,6 +2,7 @@
 import { listen } from "@tauri-apps/api/event";
 import Dialog from "../../components/ui/Dialog";
 import Button from "../../components/ui/Button";
+import DangerDialog from "../../components/ui/DangerDialog";
 import { TextInput } from "../../components/ui/fields";
 import { Icon } from "../../components/ui/Icon";
 import type { MenuItem } from "../../components/ui/Menu";
@@ -21,6 +22,17 @@ import type {
 import TreeRow from "./TreeRow";
 import { buildChildren, flattenNodes, type FlatKeyRow } from "./treeModel";
 import { dbKeyOf, type DbView, type ServerView, type TreeRowData } from "./rowTypes";
+import {
+  loadCollapsedGroups,
+  loadExpandedDatabases,
+  loadExpandedServers,
+  loadFavoriteConnections,
+  saveCollapsedGroups,
+  saveExpandedDatabases,
+  saveExpandedServers,
+  saveFavoriteConnections,
+  touchRecentConnection,
+} from "./treePrefs";
 import AddKeyDialog from "../value/AddKeyDialog";
 import { BulkTtlDialog, CopyKeysDialog } from "./BulkDialogs";
 
@@ -47,7 +59,14 @@ function capRecord<T>(record: Record<string, T>, limit: number): Record<string, 
 }
 
 function emptyServerView(): ServerView {
-  return { loaded: false, loading: false, error: null, expanded: false, databases: [] };
+  return {
+    loaded: false,
+    loading: false,
+    error: null,
+    expanded: false,
+    databases: [],
+    facts: null,
+  };
 }
 
 function emptyDb(index: number, filter: string): DbView {
@@ -75,6 +94,24 @@ function mergeUnique(existing: string[], next: string[], limit: number): string[
     }
   }
   return existing;
+}
+
+type DangerAction =
+  | { kind: "deleteKey"; connectionId: string; dbIndex: number; key: string }
+  | { kind: "deletePattern"; connectionId: string; dbIndex: number; pattern: string }
+  | { kind: "flushDb"; connectionId: string; dbIndex: number }
+  | { kind: "flushAll"; connectionId: string };
+
+interface DangerPrompt {
+  action: DangerAction;
+  title: string;
+  description: string;
+  serverName: string;
+  database?: number | null;
+  keyCount?: number | null;
+  fullServer?: boolean;
+  requireText?: string | null;
+  confirmLabel?: string;
 }
 
 export default function ConnectionTree({
@@ -123,7 +160,12 @@ export default function ConnectionTree({
   const t = useT();
   const [servers, setServers] = useState<Record<string, ServerView>>({});
   const [configs, setConfigs] = useState<Record<string, ConnectionConfig>>({});
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(loadCollapsedGroups);
+  const [favorites, setFavorites] = useState<Set<string>>(loadFavoriteConnections);
+  const [query, setQuery] = useState("");
+  const [danger, setDanger] = useState<DangerPrompt | null>(null);
+  const [dangerBusy, setDangerBusy] = useState(false);
+  const [duplicatePrompt, setDuplicatePrompt] = useState<ConnectionSummary | null>(null);
   const [expandedNs, setExpandedNs] = useState<Set<string>>(new Set());
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filterDb, setFilterDb] = useState<string | null>(null);
@@ -175,6 +217,9 @@ export default function ConnectionTree({
   const metaQueue = useRef<{ connectionId: string; db: number; key: string; cacheKey: string }[]>(
     [],
   );
+  const restoredExpansions = useRef(false);
+  /** DBs that were expanded before restart and still need their first load. */
+  const pendingAutoExpand = useRef(new Set<string>());
 
   // Live update plumbing. The listener is registered once and reads from refs
   // so it always sees the latest settings/servers without re-subscribing.
@@ -303,6 +348,40 @@ export default function ConnectionTree({
     }));
   };
 
+  /** Persisted expansion flags; unknown/stale ids are filtered on restore. */
+  const rememberServerExpanded = (connectionId: string, expanded: boolean) => {
+    const ids = loadExpandedServers();
+    if (expanded) ids.add(connectionId);
+    else ids.delete(connectionId);
+    saveExpandedServers(ids);
+  };
+
+  const rememberDbExpanded = (connectionId: string, dbIndex: number, expanded: boolean) => {
+    const ids = loadExpandedDatabases();
+    const key = dbKeyOf(connectionId, dbIndex);
+    if (expanded) ids.add(key);
+    else ids.delete(key);
+    saveExpandedDatabases(ids);
+  };
+
+  const forgetConnectionExpansion = (connectionId: string) => {
+    const prefix = `${connectionId}:`;
+    const serverIds = loadExpandedServers();
+    serverIds.delete(connectionId);
+    saveExpandedServers(serverIds);
+    const dbIds = loadExpandedDatabases();
+    for (const key of [...dbIds]) if (key.startsWith(prefix)) dbIds.delete(key);
+    saveExpandedDatabases(dbIds);
+    for (const key of [...pendingAutoExpand.current]) {
+      if (key.startsWith(prefix)) pendingAutoExpand.current.delete(key);
+    }
+  };
+
+  const dbKeyCount = (connectionId: string, dbIndex: number): number | null => {
+    const db = servers[connectionId]?.databases.find((item) => item.index === dbIndex);
+    return db ? db.keys : null;
+  };
+
   const refreshHistory = async (connectionId: string) => {
     try {
       const entries = await ipc.filterHistory(connectionId);
@@ -319,9 +398,23 @@ export default function ConnectionTree({
       loading: !view.loaded,
       error: null,
     }));
+    rememberServerExpanded(connection.id, true);
     try {
       const config = await ensureConfig(connection.id);
-      const databases = await ipc.listDatabases(connection.id);
+      const [databases, facts] = await Promise.all([
+        ipc.listDatabases(connection.id),
+        ipc.serverFacts(connection.id).catch((error) => {
+          onLog(t("tree.loadFactsFailed", { error: errMessage(error) }), "error");
+          return null;
+        }),
+      ]);
+      const prefix = `${connection.id}:`;
+      const expandedDbIndexes = new Set(
+        [...loadExpandedDatabases()]
+          .filter((key) => key.startsWith(prefix))
+          .map((key) => Number(key.slice(prefix.length)))
+          .filter((index) => Number.isInteger(index)),
+      );
       updateServer(connection.id, (view) => {
         const previous = new Map(view.databases.map((db) => [db.index, db]));
         return {
@@ -329,14 +422,25 @@ export default function ConnectionTree({
           loaded: true,
           loading: false,
           error: null,
+          facts,
           databases: databases.map((info) => {
             const old = previous.get(info.index);
             return old
               ? { ...old, keys: info.keys }
-              : { ...emptyDb(info.index, config.keysPattern), keys: info.keys };
+              : {
+                  ...emptyDb(info.index, config.keysPattern),
+                  keys: info.keys,
+                  expanded: expandedDbIndexes.has(info.index),
+                };
           }),
         };
       });
+      for (const index of expandedDbIndexes) {
+        if (databases.some((db) => db.index === index)) {
+          pendingAutoExpand.current.add(dbKeyOf(connection.id, index));
+        }
+      }
+      touchRecentConnection(connection.id);
       onLog(t("tree.loadedDatabases", { count: databases.length, name: connection.name }));
     } catch (e) {
       const message = errMessage(e);
@@ -345,6 +449,35 @@ export default function ConnectionTree({
       onLog(`${connection.name}: ${message}`, "error");
     }
   };
+
+  // Restore the servers that were expanded in the previous session. Unknown
+  // connection ids from a deleted/renamed config are simply skipped.
+  useEffect(() => {
+    if (restoredExpansions.current || !connections.length) return;
+    restoredExpansions.current = true;
+    for (const id of loadExpandedServers()) {
+      const connection = connections.find((item) => item.id === id);
+      if (!connection || servers[id]?.expanded) continue;
+      void loadServer(connection);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connections]);
+
+  // Expanded DBs restored from storage load their first SCAN page once the
+  // server view has been populated by the render triggered above.
+  useEffect(() => {
+    if (!pendingAutoExpand.current.size) return;
+    for (const key of [...pendingAutoExpand.current]) {
+      const separator = key.indexOf(":");
+      const connectionId = key.slice(0, separator);
+      const dbIndex = Number(key.slice(separator + 1));
+      const db = servers[connectionId]?.databases.find((item) => item.index === dbIndex);
+      if (!db) continue;
+      pendingAutoExpand.current.delete(key);
+      if (!db.loaded && !db.loading) void loadDb(connectionId, dbIndex, false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [servers]);
 
   const scanDb = async (
     connectionId: string,
@@ -403,6 +536,7 @@ export default function ConnectionTree({
       expanded: true,
       filter: reset ? filter : db.filter,
     }));
+    rememberDbExpanded(connectionId, dbIndex, true);
 
     try {
       const page = await scanDb(connectionId, dbIndex, "0", filter, null);
@@ -721,14 +855,30 @@ export default function ConnectionTree({
       (connection) => !connection.groupId || !knownGroups.has(connection.groupId),
     );
 
+    // Search only filters connections; groups/structure and the persisted
+    // collapse state stay untouched. Matching members are shown even inside a
+    // collapsed group so the result is never hidden.
+    const needle = query.trim().toLowerCase();
+    const searching = needle.length > 0;
+    const matchesSearch = (connection: ConnectionSummary) =>
+      !searching ||
+      connection.name.toLowerCase().includes(needle) ||
+      `${connection.host}:${connection.port}`.toLowerCase().includes(needle) ||
+      connection.host.toLowerCase().includes(needle);
+
     for (const group of sortedGroups) {
-      const members = connections.filter((connection) => connection.groupId === group.id);
+      const members = connections
+        .filter((connection) => connection.groupId === group.id)
+        .filter(matchesSearch);
+      if (searching && members.length === 0) continue;
       next.push({ kind: "group", id: `group:${group.id}`, group, depth: 0 });
-      if (!collapsedGroups.has(group.id)) {
+      if (searching || !collapsedGroups.has(group.id)) {
         for (const connection of members) addConnectionRows(connection, 1);
       }
     }
-    for (const connection of rootConnections) addConnectionRows(connection, 0);
+    for (const connection of rootConnections.filter(matchesSearch)) {
+      addConnectionRows(connection, 0);
+    }
     return next;
   }, [
     connections,
@@ -739,6 +889,7 @@ export default function ConnectionTree({
     collapsedGroups,
     expandedNs,
     filterDb,
+    query,
   ]);
 
   const startIndex = Math.max(0, Math.floor(scrollTop / rowHeight) - 8);
@@ -897,6 +1048,7 @@ export default function ConnectionTree({
 
   /** Drops the in-memory view (pool/subscriptions are already released). */
   const resetClosedConnection = (connectionId: string) => {
+    forgetConnectionExpansion(connectionId);
     const prefix = `${connectionId}:`;
     for (const key of Object.keys(liveTimers.current)) {
       if (!key.startsWith(prefix)) continue;
@@ -936,53 +1088,153 @@ export default function ConnectionTree({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [externalClose]);
 
-  const deleteKeyRow = async (row: Extract<TreeRowData, { kind: "node" }>) => {
-    if (!window.confirm(t("tree.deleteKeyConfirm"))) return;
-    try {
-      await ipc.deleteKey({
+  const deleteKeyRow = (row: Extract<TreeRowData, { kind: "node" }>) => {
+    const connection = connections.find((item) => item.id === row.connectionId);
+    if (!connection) return;
+    setDanger({
+      action: {
+        kind: "deleteKey",
         connectionId: row.connectionId,
-        db: row.dbIndex,
+        dbIndex: row.dbIndex,
         key: row.node.full,
-      });
-      onNotify(t("tree.deleted", { key: row.node.full }));
-      setMeta((prev) => {
-        const next = { ...prev };
-        delete next[`${row.dbKey}:${row.node.full}`];
-        return next;
-      });
-      await loadDb(row.connectionId, row.dbIndex, true);
+      },
+      title: t("danger.deleteKeyTitle"),
+      description: t("danger.deleteKeyDescription", {
+        key: row.node.full,
+        db: row.dbIndex,
+      }),
+      serverName: connection.name,
+      database: row.dbIndex,
+      keyCount: dbKeyCount(row.connectionId, row.dbIndex),
+      confirmLabel: t("tree.deleteKey"),
+    });
+  };
+
+  const deleteByPattern = (connectionId: string, dbIndex: number, pattern: string) => {
+    const connection = connections.find((item) => item.id === connectionId);
+    if (!connection) return;
+    setDanger({
+      action: { kind: "deletePattern", connectionId, dbIndex, pattern },
+      title: t("danger.deletePatternTitle"),
+      description: t("danger.deletePatternDescription", { pattern, db: dbIndex }),
+      serverName: connection.name,
+      database: dbIndex,
+      keyCount: dbKeyCount(connectionId, dbIndex),
+      requireText: connection.name,
+      confirmLabel: t("tree.deleteWithFilter"),
+    });
+  };
+
+  const flushDatabase = (connectionId: string, dbIndex: number) => {
+    const connection = connections.find((item) => item.id === connectionId);
+    if (!connection) return;
+    setDanger({
+      action: { kind: "flushDb", connectionId, dbIndex },
+      title: t("danger.flushDbTitle", { db: dbIndex }),
+      description: t("danger.flushDbDescription", { db: dbIndex }),
+      serverName: connection.name,
+      database: dbIndex,
+      keyCount: dbKeyCount(connectionId, dbIndex),
+      requireText: connection.name,
+      confirmLabel: t("tree.flushDatabase"),
+    });
+  };
+
+  const flushAllDatabases = (connection: ConnectionSummary) => {
+    setDanger({
+      action: { kind: "flushAll", connectionId: connection.id },
+      title: t("danger.flushAllTitle", { name: connection.name }),
+      description: t("danger.flushAllDescription"),
+      serverName: connection.name,
+      fullServer: true,
+      requireText: connection.name,
+      confirmLabel: t("danger.flushAllConfirm"),
+    });
+  };
+
+  const runDanger = async () => {
+    if (!danger || dangerBusy) return;
+    const action = danger.action;
+    setDangerBusy(true);
+    try {
+      switch (action.kind) {
+        case "deleteKey": {
+          await ipc.deleteKey({
+            connectionId: action.connectionId,
+            db: action.dbIndex,
+            key: action.key,
+          });
+          onNotify(t("tree.deleted", { key: action.key }));
+          setMeta((prev) => {
+            const next = { ...prev };
+            delete next[`${dbKeyOf(action.connectionId, action.dbIndex)}:${action.key}`];
+            return next;
+          });
+          await loadDb(action.connectionId, action.dbIndex, true);
+          break;
+        }
+        case "deletePattern": {
+          const deleted = await ipc.deleteKeysByPattern({
+            connectionId: action.connectionId,
+            db: action.dbIndex,
+            pattern: action.pattern,
+            limit: settings.scanLimit,
+          });
+          onNotify(t("tree.deletedMatching", { count: deleted, pattern: action.pattern }));
+          await loadDb(action.connectionId, action.dbIndex, true);
+          break;
+        }
+        case "flushDb": {
+          await ipc.flushDatabase({ connectionId: action.connectionId, db: action.dbIndex });
+          onNotify(t("tree.flushed", { db: action.dbIndex }));
+          await loadDb(action.connectionId, action.dbIndex, true);
+          break;
+        }
+        case "flushAll": {
+          const databases = await ipc.listDatabases(action.connectionId);
+          for (const db of databases) {
+            await ipc.flushDatabase({ connectionId: action.connectionId, db: db.index });
+          }
+          onNotify(t("tree.flushedAll", { count: databases.length }));
+          updateServer(action.connectionId, (view) => ({
+            ...emptyServerView(),
+            expanded: view.expanded,
+            databases: databases.map((db) => ({
+              ...emptyDb(db.index, configs[action.connectionId]?.keysPattern ?? "*"),
+              keys: 0,
+              loaded: true,
+              expanded: false,
+            })),
+            loaded: true,
+            facts: view.facts,
+          }));
+          break;
+        }
+      }
+      setDanger(null);
     } catch (e) {
       onNotify(t("common.operationFailed", { error: errMessage(e) }));
+    } finally {
+      setDangerBusy(false);
     }
   };
 
-  const deleteByPattern = async (
-    connectionId: string,
-    dbIndex: number,
-    pattern: string,
-    confirmText: string,
-  ) => {
-    if (!window.confirm(confirmText)) return;
-    try {
-      const deleted = await ipc.deleteKeysByPattern({
-        connectionId,
-        db: dbIndex,
-        pattern,
-        limit: settings.scanLimit,
-      });
-      onNotify(t("tree.deletedMatching", { count: deleted, pattern }));
-      await loadDb(connectionId, dbIndex, true);
-    } catch (e) {
-      onNotify(t("common.operationFailed", { error: errMessage(e) }));
-    }
+  const toggleFavorite = (connectionId: string) => {
+    setFavorites((prev) => {
+      const next = new Set(prev);
+      if (next.has(connectionId)) next.delete(connectionId);
+      else next.add(connectionId);
+      saveFavoriteConnections(next);
+      return next;
+    });
   };
 
-  const flushDatabase = async (connectionId: string, dbIndex: number) => {
-    if (!window.confirm(t("tree.flushConfirm", { db: dbIndex }))) return;
+  const duplicateConnection = async (connection: ConnectionSummary) => {
+    setDuplicatePrompt(null);
     try {
-      await ipc.flushDatabase({ connectionId, db: dbIndex });
-      onNotify(t("tree.flushed", { db: dbIndex }));
-      await loadDb(connectionId, dbIndex, true);
+      const copy = await ipc.duplicateConnection(connection.id);
+      onNotify(t("tree.created", { name: copy.name }));
+      onConnectionsChanged();
     } catch (e) {
       onNotify(t("common.operationFailed", { error: errMessage(e) }));
     }
@@ -1025,6 +1277,7 @@ export default function ConnectionTree({
         onClick: () => {
           void stopServerLive(connection.id);
           updateServer(connection.id, () => emptyServerView());
+          forgetConnectionExpansion(connection.id);
           setExpandedNs(new Set());
         },
       },
@@ -1033,6 +1286,12 @@ export default function ConnectionTree({
         label: t("tree.closeConnection"),
         icon: "x",
         onClick: () => void closeConnection(connection),
+      },
+      {
+        key: "favorite",
+        label: favorites.has(connection.id) ? t("tree.unfavorite") : t("tree.favorite"),
+        icon: favorites.has(connection.id) ? "star-filled" : "star",
+        onClick: () => toggleFavorite(connection.id),
       },
       {
         key: "edit",
@@ -1046,17 +1305,7 @@ export default function ConnectionTree({
         key: "duplicate",
         label: t("tree.duplicateConnection"),
         icon: "copy",
-        onClick: () => {
-          void (async () => {
-            try {
-              const copy = await ipc.duplicateConnection(connection.id);
-              onNotify(t("tree.created", { name: copy.name }));
-              onConnectionsChanged();
-            } catch (e) {
-              onNotify(t("common.operationFailed", { error: errMessage(e) }));
-            }
-          })();
-        },
+        onClick: () => setDuplicatePrompt(connection),
       },
       {
         key: "console",
@@ -1130,6 +1379,14 @@ export default function ConnectionTree({
             },
           ] as MenuItem[])
         : []),
+      {
+        key: "flush-all",
+        label: t("tree.flushAllDatabases"),
+        icon: "trash",
+        danger: true,
+        separatorBefore: true,
+        onClick: () => flushAllDatabases(connection),
+      },
       {
         key: "delete",
         label: t("tree.deleteConnection"),
@@ -1219,19 +1476,13 @@ export default function ConnectionTree({
         label: t("tree.deleteWithFilter"),
         danger: true,
         separatorBefore: true,
-        onClick: () =>
-          void deleteByPattern(
-            connection.id,
-            db.index,
-            db.filter || "*",
-            t("tree.deletePatternConfirm", { pattern: db.filter || "*" }),
-          ),
+        onClick: () => deleteByPattern(connection.id, db.index, db.filter || "*"),
       },
       {
         key: "flush",
         label: t("tree.flushDatabase"),
         danger: true,
-        onClick: () => void flushDatabase(connection.id, db.index),
+        onClick: () => flushDatabase(connection.id, db.index),
       },
     ];
   };
@@ -1292,12 +1543,7 @@ export default function ConnectionTree({
         danger: true,
         separatorBefore: true,
         onClick: () =>
-          void deleteByPattern(
-            connection.id,
-            db.index,
-            `${node.node.full}${separator}*`,
-            t("tree.deleteNamespaceConfirm", { namespace: node.node.full }),
-          ),
+          deleteByPattern(connection.id, db.index, `${node.node.full}${separator}*`),
       },
     ];
   };
@@ -1371,19 +1617,23 @@ export default function ConnectionTree({
           const next = new Set(prev);
           if (next.has(row.group.id)) next.delete(row.group.id);
           else next.add(row.group.id);
+          saveCollapsedGroups(next);
           return next;
         });
         break;
       case "server": {
         const willExpand = !row.view.expanded;
         updateServer(row.connection.id, (view) => ({ ...view, expanded: willExpand }));
+        rememberServerExpanded(row.connection.id, willExpand);
         if (willExpand && !row.view.loaded) void loadServer(row.connection);
         break;
       }
       case "database": {
         const willExpand = !row.db.expanded;
         updateDb(row.connection.id, row.db.index, (db) => ({ ...db, expanded: willExpand }));
+        rememberDbExpanded(row.connection.id, row.db.index, willExpand);
         if (willExpand) {
+          pendingAutoExpand.current.delete(dbKeyOf(row.connection.id, row.db.index));
           if (!row.db.loaded) void loadDb(row.connection.id, row.db.index, false);
           if (row.db.loaded && row.db.cursor !== "0" && !row.db.rootKeys.length) {
             void loadDb(row.connection.id, row.db.index, false);
@@ -1496,6 +1746,7 @@ export default function ConnectionTree({
       if (selected.kind === "server") {
         void stopServerLive(selected.connection.id);
         updateServer(selected.connection.id, () => emptyServerView());
+        forgetConnectionExpansion(selected.connection.id);
       }
     } else if (event.ctrlKey && event.key.toLowerCase() === "n") {
       event.preventDefault();
@@ -1570,6 +1821,16 @@ export default function ConnectionTree({
   };
 
   const totalHeight = rows.length * rowHeight;
+  const searchNeedle = query.trim().toLowerCase();
+  const searchActive = searchNeedle.length > 0;
+  const searchMatchCount = searchActive
+    ? connections.filter(
+        (connection) =>
+          connection.name.toLowerCase().includes(searchNeedle) ||
+          `${connection.host}:${connection.port}`.toLowerCase().includes(searchNeedle) ||
+          connection.host.toLowerCase().includes(searchNeedle),
+      ).length
+    : connections.length;
 
   const bulkConnection = bulk
     ? connections.find((item) => item.id === bulk.connectionId)
@@ -1580,6 +1841,36 @@ export default function ConnectionTree({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-center gap-1.5 border-b border-border px-2 py-1.5">
+        <span className="text-muted">
+          <Icon name="search" />
+        </span>
+        <input
+          value={query}
+          spellCheck={false}
+          placeholder={t("tree.searchPlaceholder")}
+          className="h-7 min-w-0 flex-1 rounded-sm border border-border bg-base px-2 t-12 outline-none placeholder:text-muted focus:border-highlight"
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") setQuery("");
+          }}
+          aria-label={t("tree.searchPlaceholder")}
+        />
+        {searchActive ? (
+          <>
+            <span className="shrink-0 font-mono t-11 text-muted">{searchMatchCount}</span>
+            <button
+              type="button"
+              className="shrink-0 rounded-sm p-1 text-muted hover:bg-surface hover:text-text"
+              onClick={() => setQuery("")}
+              title={t("tree.searchClear")}
+              aria-label={t("tree.searchClear")}
+            >
+              <Icon name="x" />
+            </button>
+          </>
+        ) : null}
+      </div>
       <div
         ref={viewportRef}
         className={`min-h-0 flex-1 overflow-auto outline-none ${
@@ -1604,16 +1895,28 @@ export default function ConnectionTree({
         }}
       >
         {rows.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-            <span className="text-muted">
-              <Icon name="database" />
-            </span>
-            <p className="t-13 text-muted">{t("tree.noConnections")}</p>
-            <Button variant="primary" onClick={onAddConnection}>
-              <Icon name="plus" />
-              {t("toolbar.connect")}
-            </Button>
-          </div>
+          searchActive ? (
+            <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+              <span className="text-muted">
+                <Icon name="search" />
+              </span>
+              <p className="t-13 text-muted">{t("tree.searchNoMatch")}</p>
+              <Button variant="ghost" onClick={() => setQuery("")}>
+                {t("tree.searchClear")}
+              </Button>
+            </div>
+          ) : (
+            <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+              <span className="text-muted">
+                <Icon name="database" />
+              </span>
+              <p className="t-13 text-muted">{t("tree.noConnections")}</p>
+              <Button variant="primary" onClick={onAddConnection}>
+                <Icon name="plus" />
+                {t("toolbar.connect")}
+              </Button>
+            </div>
+          )
         ) : (
           <div className="relative" style={{ height: totalHeight }}>
             {windowRows.map((row, index) => {
@@ -1626,7 +1929,7 @@ export default function ConnectionTree({
                     : row.kind === "node" && row.node.kind === "namespace"
                       ? expandedNs.has(row.node.id)
                       : row.kind === "group"
-                        ? !collapsedGroups.has(row.group.id)
+                        ? !collapsedGroups.has(row.group.id) || searchActive
                         : false;
               const metaEntry =
                 row.kind === "node" && row.node.kind === "key"
@@ -1674,6 +1977,9 @@ export default function ConnectionTree({
                     onDropConnection={(connectionId, groupId) =>
                       void moveConnection(connectionId, groupId)
                     }
+                    query={query}
+                    favorite={row.kind === "server" ? favorites.has(row.connection.id) : false}
+                    onToggleFavorite={toggleFavorite}
                   />
                 </div>
               );
@@ -1747,6 +2053,7 @@ export default function ConnectionTree({
             connectionName={bulkConnection.name}
             defaultPattern={bulkDb?.filter || "*"}
             scanLimit={settings.scanLimit}
+            dbKeyCount={bulkDb?.keys ?? null}
             onClose={() => setBulk(null)}
             onDone={(changed) => {
               onNotify(t("tree.updatedTtl", { count: changed }));
@@ -1794,6 +2101,42 @@ export default function ConnectionTree({
               : t("tree.deleteGroupConfirm", { name: confirmDelete.name })}
           </p>
         </Dialog>
+      ) : null}
+
+      {duplicatePrompt ? (
+        <Dialog
+          title={t("tree.duplicateConnection")}
+          width={440}
+          onClose={() => setDuplicatePrompt(null)}
+          footer={
+            <>
+              <Button variant="primary" onClick={() => void duplicateConnection(duplicatePrompt)}>
+                {t("tree.duplicateConnection")}
+              </Button>
+              <Button onClick={() => setDuplicatePrompt(null)}>{t("common.cancel")}</Button>
+            </>
+          }
+        >
+          <p className="t-13">{t("tree.duplicateCredentialsHint", { name: duplicatePrompt.name })}</p>
+        </Dialog>
+      ) : null}
+
+      {danger ? (
+        <DangerDialog
+          title={danger.title}
+          description={danger.description}
+          serverName={danger.serverName}
+          database={danger.database}
+          keyCount={danger.keyCount}
+          fullServer={danger.fullServer}
+          requireText={danger.requireText}
+          confirmLabel={danger.confirmLabel}
+          busy={dangerBusy}
+          onConfirm={() => void runDanger()}
+          onClose={() => {
+            if (!dangerBusy) setDanger(null);
+          }}
+        />
       ) : null}
     </div>
   );

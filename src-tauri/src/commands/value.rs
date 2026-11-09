@@ -44,10 +44,13 @@ pub async fn read_value_page(
     start: u64,
     count: u32,
     reverse: bool,
+    match_pattern: Option<String>,
+    match_target: Option<Option<String>>,
 ) -> AppResult<ValuePage> {
     let app = state.inner();
     let config = app.connection_config(&connection_id).await?;
     let mut conn = app.pool.get(&connection_id, db, &config).await?;
+    let match_target = match_target.flatten();
     crate::redis::read_value_page(
         &mut conn,
         &config,
@@ -57,6 +60,8 @@ pub async fn read_value_page(
         start,
         count,
         reverse,
+        match_pattern.as_deref(),
+        match_target.as_deref(),
     )
     .await
 }

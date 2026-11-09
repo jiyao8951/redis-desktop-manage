@@ -1,9 +1,11 @@
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 
 /// Persisted connection settings. Field names are the camelCase form of the
 /// QML properties in ConnectionSettignsDialog.qml; the serde aliases accept the
 /// original snake_case keys used by RESP.app's connections.json export.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ConnectionConfig {
     pub id: String,
@@ -62,6 +64,45 @@ pub struct ConnectionConfig {
 
     /// RESP2 is the default. RESP3 is opt-in; Redis 8 supports both.
     pub protocol: String,
+}
+
+/// Credentials must never leak through a `{:?}` log line. `Serialize` is
+/// untouched so the frontend/settings contract keeps every field.
+impl fmt::Debug for ConnectionConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        const REDACTED: &str = "[REDACTED]";
+        f.debug_struct("ConnectionConfig")
+            .field("id", &self.id)
+            .field("group_id", &self.group_id)
+            .field("name", &self.name)
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("auth", &REDACTED)
+            .field("username", &self.username)
+            .field("ssl_enabled", &self.ssl_enabled)
+            .field("ssl_local_cert_path", &self.ssl_local_cert_path)
+            .field("ssl_private_key_path", &self.ssl_private_key_path)
+            .field("ssl_ca_cert_path", &self.ssl_ca_cert_path)
+            .field("ignore_ssl_errors", &self.ignore_ssl_errors)
+            .field("ssh_host", &self.ssh_host)
+            .field("ssh_port", &self.ssh_port)
+            .field("ssh_user", &self.ssh_user)
+            .field("ssh_password", &REDACTED)
+            .field("ssh_private_key", &REDACTED)
+            .field("ssh_agent", &self.ssh_agent)
+            .field("ssh_agent_path", &self.ssh_agent_path)
+            .field("ask_for_ssh_password", &self.ask_for_ssh_password)
+            .field("keys_pattern", &self.keys_pattern)
+            .field("namespace_separator", &self.namespace_separator)
+            .field("execute_timeout", &self.execute_timeout)
+            .field("connection_timeout", &self.connection_timeout)
+            .field("db_scan_limit", &self.db_scan_limit)
+            .field("override_cluster_host", &self.override_cluster_host)
+            .field("default_formatter", &self.default_formatter)
+            .field("icon_color", &self.icon_color)
+            .field("protocol", &self.protocol)
+            .finish()
+    }
 }
 
 impl Default for ConnectionConfig {

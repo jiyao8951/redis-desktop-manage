@@ -74,10 +74,10 @@ fn join_batch(lines: &[String]) -> String {
 /// Starts MONITOR on a dedicated connection. Replacing an existing monitor for
 /// the same connection stops the previous one first.
 ///
-/// `aio::Connection` is deprecated, but `MultiplexedConnection` cannot be
-/// converted into a monitor stream: MONITOR needs a connection that is not
-/// shared with request/response traffic.
-#[allow(deprecated)]
+/// `get_async_monitor` opens a non-multiplexed connection, performs the RESP
+/// handshake and issues `MONITOR` before returning, so the stream is already
+/// in command-feed mode. MONITOR needs a connection that is not shared with
+/// request/response traffic, which is why this never borrows from `RedisPool`.
 pub async fn start_monitor(
     app: AppHandle,
     registry: &MonitorRegistry,
@@ -86,12 +86,8 @@ pub async fn start_monitor(
 ) -> AppResult<()> {
     let url = build_url(config, 0, false);
     let client = redis::Client::open(url.as_str())?;
-    let connection = tokio::time::timeout(connection_timeout(config), client.get_async_connection())
+    let monitor = tokio::time::timeout(connection_timeout(config), client.get_async_monitor())
         .await??;
-
-    let mut monitor = connection.into_monitor();
-    // `MONITOR` answers +OK and then streams every command the server executes.
-    monitor.monitor().await?;
 
     let event_connection = connection_id.to_string();
     let ended_connection = event_connection.clone();

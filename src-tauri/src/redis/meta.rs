@@ -399,21 +399,28 @@ fn percent_decode(value: &str) -> String {
 mod tests {
     use super::*;
 
-    fn key_arg_list(command: &redis::Cmd) -> Vec<String> {
-        command
-            .args_iter()
-            .filter_map(|arg| match arg {
-                redis::Arg::Simple(bytes) => Some(String::from_utf8_lossy(bytes).into_owned()),
-                redis::Arg::Cursor => None,
-            })
-            .collect()
-    }
-
     #[test]
     fn meta_pipeline_emits_type_and_ttl_in_key_order() {
         let keys = vec!["alpha".to_string(), "beta".to_string()];
         let pipe = meta_pipeline(&keys);
-        let commands: Vec<Vec<String>> = pipe.cmd_iter().map(key_arg_list).collect();
+        // redis 2.0 yields opaque `CmdRef` values from `cmd_iter`, so the
+        // argument extraction is inlined instead of going through a helper
+        // that would need to name that private type.
+        let commands: Vec<Vec<String>> = pipe
+            .cmd_iter()
+            .map(|command| {
+                command
+                    .args_iter()
+                    .filter_map(|arg| match arg {
+                        redis::Arg::Simple(bytes) => {
+                            Some(String::from_utf8_lossy(bytes).into_owned())
+                        }
+                        redis::Arg::Cursor => None,
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .collect();
 
         assert_eq!(commands.len(), keys.len() * COMMANDS_PER_KEY);
         assert_eq!(commands[0], vec!["TYPE", "alpha"]);

@@ -31,6 +31,23 @@ function Chevron({ expanded }: { expanded: boolean }) {
   return <Icon name={expanded ? "chevron-down" : "chevron-right"} />;
 }
 
+/** Highlights the first case-insensitive occurrence of the search term. */
+function Highlight({ text, query }: { text: string; query?: string }) {
+  const needle = query?.trim();
+  if (!needle) return <>{text}</>;
+  const index = text.toLowerCase().indexOf(needle.toLowerCase());
+  if (index < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, index)}
+      <mark className="rounded-sm bg-highlight/25 px-0 text-inherit">
+        {text.slice(index, index + needle.length)}
+      </mark>
+      {text.slice(index + needle.length)}
+    </>
+  );
+}
+
 function KeyBadges({ meta }: { meta?: KeyMeta }) {
   const t = useT();
   if (!meta) return null;
@@ -75,6 +92,9 @@ export default function TreeRow({
   onConnectionDragStart,
   onDropConnection,
   dragEnabled = false,
+  query = "",
+  favorite = false,
+  onToggleFavorite,
 }: {
   row: TreeRowData;
   selected: boolean;
@@ -94,6 +114,10 @@ export default function TreeRow({
   onDropConnection?: (connectionId: string, groupId: string | null) => void;
   /** Server rows are draggable only in Regroup mode, like the original. */
   dragEnabled?: boolean;
+  /** Connection search term; matching substrings are highlighted. */
+  query?: string;
+  favorite?: boolean;
+  onToggleFavorite?: (connectionId: string) => void;
 }) {
   const t = useT();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -293,6 +317,13 @@ export default function TreeRow({
 
   if (row.kind === "server") {
     const view = row.view;
+    const endpoint = `${row.connection.host}:${row.connection.port}`;
+    const searching = query.trim().length > 0;
+    // While searching, show the endpoint so host:port matches stay visible.
+    const serverInfo =
+      view.facts && !searching
+        ? `v${view.facts.version} · ${view.facts.redisMode}`
+        : endpoint;
     return (
       <div
         className={`tree-row group relative flex h-row cursor-pointer items-center gap-1.5 pr-2 t-content font-semibold ${
@@ -323,18 +354,40 @@ export default function TreeRow({
         <span className="text-muted" style={iconColor ? { color: iconColor } : undefined}>
           <Icon name="database" />
         </span>
-        <span className="min-w-0 flex-1 truncate">{row.connection.name}</span>
+        <span className="min-w-0 flex-1 truncate">
+          <Highlight text={row.connection.name} query={query} />
+        </span>
         <span
           className={`shrink-0 truncate t-12 font-normal ${
             selected ? "text-white/75" : "text-muted"
           }`}
           style={{ maxWidth: "45%" }}
+          title={`${endpoint}${view.facts ? ` · Redis ${view.facts.version} (${view.facts.redisMode})` : ""}`}
         >
-          {row.connection.host}:{row.connection.port}
+          <Highlight text={serverInfo} query={query} />
         </span>
         {view.error ? (
           <span className="t-11 font-normal text-danger">{t("tree.errorBadge")}</span>
         ) : null}
+        <button
+          type="button"
+          className={`shrink-0 rounded-sm p-1 transition-colors ${
+            favorite
+              ? "text-[#e8b339]"
+              : selected
+                ? "text-white/70 hover:bg-white/15 hover:text-white"
+                : "text-muted opacity-0 hover:bg-black/10 hover:text-text group-hover:opacity-100"
+          }`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleFavorite?.(row.connection.id);
+          }}
+          aria-label={favorite ? t("tree.unfavorite") : t("tree.favorite")}
+          aria-pressed={favorite}
+          title={favorite ? t("tree.unfavorite") : t("tree.favorite")}
+        >
+          <Icon name={favorite ? "star-filled" : "star"} />
+        </button>
         {menuItems.length ? (
           <button
             type="button"

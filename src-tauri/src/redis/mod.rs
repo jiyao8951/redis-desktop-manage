@@ -157,9 +157,10 @@ mod smoke_tests {
                     string_checked = true;
                 }
                 "hash" if !hash_checked => {
-                    let page = read_value_page(&mut manager, &config, key, "hash", "0", 0, 10, false)
-                        .await
-                        .expect("hash page");
+                    let page =
+                        read_value_page(&mut manager, &config, key, "hash", "0", 0, 10, false, None, None)
+                            .await
+                            .expect("hash page");
                     println!(
                         "hash: total={:?} rows={} columns={:?} cursor={} done={}",
                         page.total,
@@ -171,9 +172,10 @@ mod smoke_tests {
                     hash_checked = true;
                 }
                 "zset" if !zset_checked => {
-                    let page = read_value_page(&mut manager, &config, key, "zset", "0", 0, 10, false)
-                        .await
-                        .expect("zset page");
+                    let page =
+                        read_value_page(&mut manager, &config, key, "zset", "0", 0, 10, false, None, None)
+                            .await
+                            .expect("zset page");
                     println!(
                         "zset: total={:?} rows={} columns={:?} done={}",
                         page.total,

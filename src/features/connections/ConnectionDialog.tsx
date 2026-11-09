@@ -12,6 +12,33 @@ import type { ConnectionConfig, TestResult } from "../../lib/types";
 
 type Tab = "basic" | "advanced";
 
+/** Optional per-step result added by the backend; absent today. */
+interface ConnectionTestStep {
+  name: string;
+  ok: boolean;
+  message?: string;
+  durationMs?: number;
+}
+
+type ConnectionTestResult = TestResult & { steps?: unknown };
+
+function normalizeSteps(value: unknown): ConnectionTestStep[] {
+  if (!Array.isArray(value)) return [];
+  const steps: ConnectionTestStep[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const step = item as Partial<ConnectionTestStep>;
+    if (typeof step.name !== "string" || typeof step.ok !== "boolean") continue;
+    steps.push({
+      name: step.name,
+      ok: step.ok,
+      message: typeof step.message === "string" ? step.message : undefined,
+      durationMs: typeof step.durationMs === "number" ? step.durationMs : undefined,
+    });
+  }
+  return steps;
+}
+
 /**
  * Rebuild of src/qml/connections/ConnectionSettignsDialog.qml.
  * Every visible field and its label order is kept; the only additions are the
@@ -41,7 +68,7 @@ export default function ConnectionDialog({
   );
   const [invalid, setInvalid] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [testResult, setTestResult] = useState<TestResult | null>(null);
+  const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
 
   const set = <K extends keyof ConnectionConfig>(key: K, value: ConnectionConfig[K]) =>
     setDraft((d) => ({ ...d, [key]: value }));
@@ -85,7 +112,7 @@ export default function ConnectionDialog({
     setBusy(true);
     setTestResult(null);
     try {
-      const result = await ipc.testConnection(cleanForSave());
+      const result = (await ipc.testConnection(cleanForSave())) as ConnectionTestResult;
       setTestResult(result);
     } catch (e) {
       setTestResult({ success: false, message: errMessage(e), warning: null, facts: null });
@@ -93,6 +120,8 @@ export default function ConnectionDialog({
       setBusy(false);
     }
   };
+
+  const testSteps = testResult ? normalizeSteps(testResult.steps) : [];
 
   const footer = (
     <div className="flex w-full items-center gap-2">
@@ -152,6 +181,38 @@ export default function ConnectionDialog({
           </div>
           {testResult.message ? (
             <div className="mt-1.5 whitespace-pre-wrap text-text/90">{testResult.message}</div>
+          ) : null}
+          {testSteps.length ? (
+            <ul className="mt-2 space-y-1 border-t border-border/60 pt-2">
+              {testSteps.map((step, index) => (
+                <li key={`${step.name}-${index}`} className="flex items-start gap-1.5">
+                  <span
+                    className={`mt-0.5 shrink-0 ${
+                      step.ok ? "text-success" : "text-danger"
+                    }`}
+                    aria-label={step.ok ? t("common.ok") : t("conn.testFailed")}
+                  >
+                    <Icon name={step.ok ? "check" : "alert"} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="font-medium">{step.name}</span>
+                    {step.durationMs !== undefined ? (
+                      <span className="ml-1.5 font-mono t-11 text-muted">
+                        {t("conn.testStepDuration", { ms: step.durationMs })}
+                      </span>
+                    ) : null}
+                    {step.message ? (
+                      <span className="ml-1.5 break-all text-muted">{step.message}</span>
+                    ) : null}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {testResult.facts ? (
+            <div className="mt-1.5 font-mono t-12 text-muted">
+              Redis {testResult.facts.version} · {testResult.facts.redisMode}
+            </div>
           ) : null}
           {testResult.warning ? (
             <div className="mt-1.5 whitespace-pre-wrap text-muted">{testResult.warning}</div>
@@ -222,27 +283,41 @@ export default function ConnectionDialog({
                 <Radio
                   checked={sshEnabled}
                   onChange={() => setSshEnabled((v) => !v)}
-                  label={t("conn.ssh")}
+                  label={
+                    <span className="inline-flex items-center gap-1.5">
+                      {t("conn.ssh")}
+                      <UnsupportedBadge />
+                    </span>
+                  }
                 />
               </div>
 
               {draft.sslEnabled && !sshEnabled ? (
                 <div className="mt-3 grid grid-cols-[120px_1fr] items-center gap-x-3 gap-y-2">
-                  <span className="t-13 text-muted">{t("conn.publicKey")}</span>
+                  <span className="inline-flex items-center gap-1 t-13 text-muted">
+                    {t("conn.publicKey")}
+                    <UnsupportedBadge />
+                  </span>
                   <FilePathInput
                     path={draft.sslLocalCertPath}
                     placeholder={t("conn.publicKeyPlaceholder")}
                     filters={[{ name: t("conn.filterPublicKey"), extensions: ["pem", "crt"] }]}
                     onChange={(v) => set("sslLocalCertPath", v)}
                   />
-                  <span className="t-13 text-muted">{t("conn.privateKey")}</span>
+                  <span className="inline-flex items-center gap-1 t-13 text-muted">
+                    {t("conn.privateKey")}
+                    <UnsupportedBadge />
+                  </span>
                   <FilePathInput
                     path={draft.sslPrivateKeyPath}
                     placeholder={t("conn.privateKeyPlaceholder")}
                     filters={[{ name: t("conn.filterPrivateKey"), extensions: ["pem", "key"] }]}
                     onChange={(v) => set("sslPrivateKeyPath", v)}
                   />
-                  <span className="t-13 text-muted">{t("conn.authority")}</span>
+                  <span className="inline-flex items-center gap-1 t-13 text-muted">
+                    {t("conn.authority")}
+                    <UnsupportedBadge />
+                  </span>
                   <FilePathInput
                     path={draft.sslCaCertPath}
                     placeholder={t("conn.authorityPlaceholder")}
@@ -255,11 +330,15 @@ export default function ConnectionDialog({
                     onChange={(v) => set("ignoreSslErrors", !v)}
                     label=""
                   />
+                  <p className="col-span-2 t-12 text-muted">{t("conn.certUnsupportedHint")}</p>
                 </div>
               ) : null}
 
               {sshEnabled ? (
                 <div className="mt-3 space-y-3 rounded-md border border-border bg-base p-3">
+                  <p className="rounded-sm border border-border bg-surface px-2.5 py-2 t-12 text-muted">
+                    {t("conn.sshUnsupportedHint")}
+                  </p>
                   <div className="grid grid-cols-[120px_1fr] items-center gap-x-3 gap-y-2">
                     <span className="t-13 text-muted">{t("conn.sshAddress")}</span>
                     <div className="flex items-center gap-1">
@@ -453,6 +532,15 @@ export default function ConnectionDialog({
         ) : null}
       </div>
     </Dialog>
+  );
+}
+
+function UnsupportedBadge() {
+  const t = useT();
+  return (
+    <span className="rounded-sm border border-border bg-base px-1 py-px t-11 font-normal uppercase tracking-wide text-muted">
+      {t("conn.notSupported")}
+    </span>
   );
 }
 

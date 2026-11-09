@@ -96,6 +96,10 @@ pub struct ValuePage {
     /// False when another SCAN/XREVRANGE page may exist.
     pub done: bool,
     pub columns: Vec<String>,
+    /// Number of entries scanned/compared by a full-value search. `None` for
+    /// ordinary paging, so existing callers keep the same wire shape.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scanned: Option<u64>,
 }
 
 /// A slice of a string value. The frontend never receives the whole value in a
@@ -168,6 +172,7 @@ mod tests {
             total: Some(1),
             done: true,
             columns: vec!["rowNumber".into(), "key".into(), "value".into()],
+            scanned: None,
         };
         let json = serde_json::to_string(&page).unwrap();
         assert!(json.contains("\"rows\":[{\"r\":0,\"c\":[\"f\",\"v\"]}]"));

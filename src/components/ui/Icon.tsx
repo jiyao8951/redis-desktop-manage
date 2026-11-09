@@ -25,6 +25,8 @@ import {
   Server,
   Settings,
   Sidebar,
+  Star,
+  StarFilled,
   Terminal,
   Trash,
   Unload,
@@ -57,6 +59,8 @@ export type IconName =
   | "server"
   | "settings"
   | "sidebar"
+  | "star"
+  | "star-filled"
   | "terminal"
   | "trash"
   | "unload"
@@ -88,6 +92,8 @@ const MAP: Record<IconName, () => JSX.Element> = {
   server: Server,
   settings: Settings,
   sidebar: Sidebar,
+  star: Star,
+  "star-filled": StarFilled,
   terminal: Terminal,
   trash: Trash,
   unload: Unload,

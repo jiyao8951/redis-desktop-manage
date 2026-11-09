@@ -1,4 +1,4 @@
-import type { ConnectionGroup, ConnectionSummary } from "../../lib/types";
+import type { ConnectionGroup, ConnectionSummary, ServerFacts } from "../../lib/types";
 import type { TreeNode } from "./treeModel";
 
 /** State kept for one database row in the sidebar. */
@@ -24,6 +24,8 @@ export interface ServerView {
   error: string | null;
   expanded: boolean;
   databases: DbView[];
+  /** Redis version and mode; null until INFO succeeds. */
+  facts: ServerFacts | null;
 }
 
 export type TreeRowData =

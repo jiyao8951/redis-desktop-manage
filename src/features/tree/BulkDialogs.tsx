@@ -1,5 +1,6 @@
 ﻿import { useState } from "react";
 import Button from "../../components/ui/Button";
+import DangerDialog from "../../components/ui/DangerDialog";
 import Dialog from "../../components/ui/Dialog";
 import { Checkbox, Field, NumberInput, Select, TextInput } from "../../components/ui/fields";
 import { ipc } from "../../lib/ipc";
@@ -13,6 +14,8 @@ interface BulkTtlDialogProps {
   connectionName: string;
   defaultPattern: string;
   scanLimit: number;
+  /** Current key count of the target DB, when known. */
+  dbKeyCount?: number | null;
   onClose: () => void;
   onDone: (changed: number) => void;
   onNotify: (message: string) => void;
@@ -29,6 +32,7 @@ export function BulkTtlDialog({
   connectionName,
   defaultPattern,
   scanLimit,
+  dbKeyCount,
   onClose,
   onDone,
   onNotify,
@@ -37,14 +41,20 @@ export function BulkTtlDialog({
   const [pattern, setPattern] = useState(defaultPattern || "*");
   const [ttl, setTtl] = useState("0");
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const seconds = Number(ttl);
+  const ttlValid = Number.isFinite(seconds) && Number.isInteger(seconds);
 
-  const submit = async () => {
-    const seconds = Number(ttl);
-    if (!Number.isFinite(seconds) || !Number.isInteger(seconds)) {
+  const submit = () => {
+    if (!ttlValid) {
       onNotify(t("bulk.ttlInvalid"));
       return;
     }
-    if (!window.confirm(t("bulk.confirm"))) return;
+    setConfirming(true);
+  };
+
+  const apply = async () => {
+    if (!ttlValid) return;
     setBusy(true);
     try {
       const changed = await ipc.setTtlByPattern({
@@ -60,10 +70,12 @@ export function BulkTtlDialog({
       onNotify(errMessage(error));
     } finally {
       setBusy(false);
+      setConfirming(false);
     }
   };
 
   return (
+    <>
     <Dialog
       title={t("bulk.title")}
       width={520}
@@ -95,6 +107,23 @@ export function BulkTtlDialog({
         </Field>
       </div>
     </Dialog>
+    {confirming ? (
+      <DangerDialog
+        title={t("danger.bulkTtlTitle")}
+        description={t("danger.bulkTtlDescription", { pattern, ttl: seconds })}
+        serverName={connectionName}
+        database={dbIndex}
+        keyCount={dbKeyCount}
+        requireText={connectionName}
+        confirmLabel={t("bulk.setTtl")}
+        busy={busy}
+        onConfirm={() => void apply()}
+        onClose={() => {
+          if (!busy) setConfirming(false);
+        }}
+      />
+    ) : null}
+    </>
   );
 }
 
@@ -135,8 +164,9 @@ export function CopyKeysDialog({
   const [ttl, setTtl] = useState("0");
   const [replace, setReplace] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
 
-  const submit = async () => {
+  const submit = () => {
     if (!targetId) {
       onNotify(t("bulk.selectTarget"));
       return;
@@ -151,7 +181,12 @@ export function CopyKeysDialog({
       onNotify(t("bulk.ttlInvalid"));
       return;
     }
-    if (!window.confirm(t("bulk.confirm"))) return;
+    setConfirming(true);
+  };
+
+  const apply = async () => {
+    const db = Number(targetDb);
+    const seconds = Number(ttl);
     setBusy(true);
     try {
       const copied = await ipc.copyKeys({
@@ -170,10 +205,15 @@ export function CopyKeysDialog({
       onNotify(errMessage(error));
     } finally {
       setBusy(false);
+      setConfirming(false);
     }
   };
 
+  const targetName = connections.find((item) => item.id === targetId)?.name ?? targetId;
+  const targetDbNumber = Number(targetDb);
+
   return (
+    <>
     <Dialog
       title={t("bulk.title")}
       width={560}
@@ -222,5 +262,25 @@ export function CopyKeysDialog({
         <Checkbox checked={replace} onChange={setReplace} label={t("bulk.replace")} />
       </div>
     </Dialog>
+    {confirming ? (
+      <DangerDialog
+        title={t("danger.copyKeysTitle")}
+        description={`${t("danger.copyKeysDescription", {
+          pattern,
+          source: `${sourceName} db${sourceDb}`,
+          target: `${targetName} db${Number.isInteger(targetDbNumber) ? targetDbNumber : targetDb}`,
+        })}${replace ? `\n\n${t("danger.copyReplaceWarning")}` : ""}`}
+        serverName={targetName}
+        database={Number.isInteger(targetDbNumber) ? targetDbNumber : null}
+        requireText={replace ? targetName : null}
+        confirmLabel={t("bulk.copy")}
+        busy={busy}
+        onConfirm={() => void apply()}
+        onClose={() => {
+          if (!busy) setConfirming(false);
+        }}
+      />
+    ) : null}
+    </>
   );
 }

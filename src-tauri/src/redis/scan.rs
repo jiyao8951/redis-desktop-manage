@@ -130,7 +130,7 @@ fn configured_databases_from_reply(reply: &Value) -> u32 {
     }
 
     flat.get(1)
-        .and_then(|value| redis::from_redis_value::<String>(value).ok())
+        .and_then(|value| redis::from_redis_value::<String>((*value).clone()).ok())
         .and_then(|value| value.trim().parse::<u32>().ok())
         .unwrap_or(0)
 }

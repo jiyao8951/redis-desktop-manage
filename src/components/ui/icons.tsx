@@ -210,3 +210,15 @@ export const X = () => (
     <path d="M6 6l12 12M18 6L6 18" />
   </svg>
 );
+
+export const Star = () => (
+  <svg {...base} width={S} height={S}>
+    <path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" />
+  </svg>
+);
+
+export const StarFilled = () => (
+  <svg {...base} width={S} height={S} fill="currentColor">
+    <path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" />
+  </svg>
+);
