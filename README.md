@@ -91,10 +91,10 @@ The packaging command is Windows-only. Chinese sections below contain the full d
 | 层     | 技术                                                    | 职责                                                 |
 | ------ | ------------------------------------------------------- | ---------------------------------------------------- |
 | 前端   | React 19、TypeScript、Tailwind CSS 4                    | 界面、标签页、连接树、值编辑器、服务器视图           |
-| 构建   | Vite+ 1.4.0（Vite / Rolldown / Oxlint / Oxfmt）         | 开发服务器、构建、格式化、lint 与类型感知检查        |
+| 构建   | Vite+ 1.5.0（Vite / Rolldown / Oxlint / Oxfmt）         | 开发服务器、构建、格式化、lint 与类型感知检查        |
 | 桌面壳 | Tauri v2（CLI 2.12.4）                                  | 窗口、IPC、文件对话框、应用退出                      |
-| 后端   | Rust、Tokio                                             | 命令实现、连接池、SCAN、值读写、Live Update、Monitor |
-| Redis  | `redis` 0.27（`tokio-comp`、`connection-manager`、TLS） | RESP2/RESP3、连接复用与超时控制                      |
+| 后端   | Rust（edition 2024）、Tokio 1.54、rustls 0.23           | 命令实现、连接池、SCAN、值读写、Live Update、Monitor |
+| Redis  | `redis` 2.0.0-rc.2（`=2.0.0-rc.2`，`tokio-comp`、`connection-manager`、`tls-rustls-native-roots`、TLS） | RESP2/RESP3、连接复用与超时控制 |
 | 存储   | `rusqlite` 0.32（bundled SQLite）                       | 连接、分组、过滤历史、应用设置                       |
 
 ## 环境要求
@@ -103,9 +103,11 @@ The packaging command is Windows-only. Chinese sections below contain the full d
 | -------- | --------------------------------------------------------------------------------------- |
 | 操作系统 | Windows 10/11 x64                                                                       |
 | WebView2 | Microsoft Edge WebView2 Runtime（Windows 10/11 通常自带，精简系统需单独安装）           |
-| Node.js  | Vite+ 1.4.0 要求 `^22.18.0 \|\| ^24.11.0 \|\| >=26.0.0`                                 |
+| Node.js  | Vite+ 1.5.0 要求 `^22.18.0 \|\| ^24.11.0 \|\| >=26.0.0`                                 |
 | Bun      | 用于安装依赖和运行脚本；仓库只保留 `bun.lock`                                           |
-| Rust     | stable 工具链，`x86_64-pc-windows-msvc` 目标；`Cargo.toml` 声明 `rust-version = "1.77"` |
+| Rust     | 1.99.1（根目录 `rust-toolchain.toml` 自动选择），`x86_64-pc-windows-msvc` 目标；`Cargo.toml` 声明 `rust-version = "1.99"`、`edition = "2024"` |
+
+`Cargo.lock` 已升级为 v4 格式（由 cargo 1.99 写入）。请使用 `rust-toolchain.toml` 钉住的 1.99.1 构建：**cargo 低于 1.99 会在 `rust-version = "1.99"` 检查处直接报错、无法完成构建**（锁文件格式也不再向下兼容），不要手动降级工具链。
 
 打包脚本会主动检查 `node`、`bun`、`cargo` 是否可用。
 
@@ -151,6 +153,8 @@ dist-release\RedisDesktopManager_1.0.0_portable_x64.exe
 
 这是一个单文件绿色版，**不生成 NSIS/MSI 安装包**。`dist-release/` 与 `*.exe` 已被 `.gitignore` 忽略，不会进入版本库。
 
+打包同样要求根目录 `rust-toolchain.toml` 指定的 Rust 1.99.1；脚本只检查 `cargo` 是否存在，不会自动安装工具链。
+
 ## 目录结构
 
 ```text
@@ -193,7 +197,7 @@ dist-release\RedisDesktopManager_1.0.0_portable_x64.exe
 | `bun run check:types`                                      | `tsc --noEmit` 类型检查           | 通过                                      |
 | `bun run build`                                            | 类型检查 + `vp build`             | 通过；59 modules，产物在 `dist/`          |
 | `bun x vp check --no-fmt`                                  | Oxlint + 类型感知检查（不格式化） | 通过；43 files，无 warning/lint/type 错误 |
-| `cargo test --manifest-path src-tauri\Cargo.toml`          | Rust 单元测试                     | 51 passed，0 failed，1 ignored            |
+| `cargo test --manifest-path src-tauri\Cargo.toml`          | Rust 单元测试                     | 67 passed，0 failed，1 ignored            |
 | `cargo check --tests --manifest-path src-tauri\Cargo.toml` | Rust 编译检查                     | 可用于快速检查测试代码编译                |
 
 被忽略的测试是只读冒烟测试 `read_only_smoke`，需要真实服务器环境才运行：

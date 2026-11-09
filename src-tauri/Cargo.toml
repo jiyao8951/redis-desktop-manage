@@ -3,8 +3,8 @@ name = "resp-app"
 version = "1.0.0"
 description = "Redis Desktop Manager desktop client rebuilt with Tauri v2"
 authors = ["Redis Desktop Manager contributors"]
-edition = "2021"
-rust-version = "1.77"
+edition = "2024"
+rust-version = "1.99"
 
 [lib]
 name = "resp_app_lib"
@@ -23,14 +23,17 @@ serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 
 # Redis client. `connection-manager` gives us a reconnecting multiplexed
-# connection per (connection, db). `tokio-rustls-comp` is the async TLS feature
-# (plain `tls-rustls` alone fails to compile redis 0.27's async module);
-# `tls-rustls-insecure` enables the `#insecure` URL fragment.
-redis = { version = "0.27", features = [
+# connection per (connection, db). In redis 2.0 `tls-rustls` no longer bundles
+# the platform certificate store, so `tls-rustls-native-roots` is required to
+# keep verifying servers against the OS trust store. `tls-rustls-insecure`
+# enables the `#insecure` URL fragment. Exact pin so a caret bump cannot
+# silently change the RESP decoding behaviour again.
+redis = { version = "=2.0.0-rc.2", default-features = false, features = [
   "tokio-comp",
   "connection-manager",
   "tokio-rustls-comp",
   "tls-rustls-insecure",
+  "tls-rustls-native-roots",
 ] }
 
 # SQLite is embedded (bundled) so Windows users need no system SQLite.
