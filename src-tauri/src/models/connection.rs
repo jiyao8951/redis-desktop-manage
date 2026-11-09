@@ -256,6 +256,35 @@ impl Default for ConnectionGroup {
     }
 }
 
+/// Outcome of a connection backup restore. Duplicates already present in the
+/// database are skipped or overwritten according to the user's choice.
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportSummary {
+    pub imported: usize,
+    pub overwritten: usize,
+    pub skipped: usize,
+    pub groups: usize,
+}
+
+/// One existing connection that collides with an entry of the backup file.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportConflict {
+    pub name: String,
+    pub host: String,
+    pub port: u16,
+}
+
+/// Dry-run result shown before a restore so the user can choose between
+/// overwriting and skipping the colliding entries.
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportPreview {
+    pub total: usize,
+    pub conflicts: Vec<ImportConflict>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FilterHistoryEntry {

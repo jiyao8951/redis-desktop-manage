@@ -84,6 +84,8 @@ export default function TreeRow({
   filterBusy,
   menuItems,
   onSelect,
+  /** Right-click only highlights the row; it must not open/connect. */
+  onContextSelect,
   onToggle,
   onApplyFilter,
   onResetFilter,
@@ -105,6 +107,7 @@ export default function TreeRow({
   filterBusy: boolean;
   menuItems: MenuItem[];
   onSelect: (row: TreeRowData) => void;
+  onContextSelect: (row: TreeRowData) => void;
   onToggle: (row: TreeRowData) => void;
   onApplyFilter: (dbKey: string, pattern: string) => void;
   onResetFilter: (dbKey: string) => void;
@@ -127,7 +130,9 @@ export default function TreeRow({
 
   const openContextMenu = (event: ReactMouseEvent) => {
     event.preventDefault();
-    onSelect(row);
+    // Only highlight the row. Calling onSelect here would activate it, which
+    // opens the server (and connects) before the user picks a menu entry.
+    onContextSelect(row);
     setMenuOpen(false);
     setContextMenu({ x: event.clientX, y: event.clientY });
   };

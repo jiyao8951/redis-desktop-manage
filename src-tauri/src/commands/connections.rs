@@ -5,7 +5,8 @@ use tauri::State;
 use crate::db;
 use crate::error::AppResult;
 use crate::models::connection::{
-    ConnectionConfig, ConnectionGroup, ConnectionSummary, FilterHistoryEntry,
+    ConnectionConfig, ConnectionGroup, ConnectionSummary, FilterHistoryEntry, ImportPreview,
+    ImportSummary,
 };
 use crate::models::tree::TestResult;
 use crate::state::AppState;
@@ -112,24 +113,60 @@ pub fn parse_redis_url(url: String) -> AppResult<ConnectionConfig> {
     crate::redis::parse_redis_url(&url)
 }
 
+/// Scans a backup file without writing anything so the UI can ask the user
+/// whether colliding entries should be overwritten or skipped.
 #[tauri::command]
-pub async fn import_connections(state: State<'_, AppState>, path: String) -> AppResult<usize> {
+pub async fn preview_import_connections(
+    state: State<'_, AppState>,
+    path: String,
+) -> AppResult<ImportPreview> {
+    with_db(state.inner(), move |conn| {
+        db::preview_import_file(conn, &PathBuf::from(path))
+    })
+    .await
+}
+
+/// Restores a backup file. Colliding entries (same name/host/port) are skipped
+/// or overwritten according to `overwrite`. Overwriting an existing row keeps
+/// its id, but its runtime config changes, so all pooled connections,
+/// subscriptions and MONITOR streams are released before returning.
+#[tauri::command]
+pub async fn import_connections(
+    state: State<'_, AppState>,
+    path: String,
+    overwrite: bool,
+) -> AppResult<ImportSummary> {
     let app = state.inner();
-    let imported = with_db(app, move |conn| db::import_file(conn, &PathBuf::from(path))).await?;
-    // An import replaces the whole connection list, so every pooled manager,
-    // Live Update subscription and MONITOR stream may belong to a config that
-    // no longer matches what the file contained.
-    app.pool.invalidate_all().await;
-    app.live.stop_all().await;
-    app.monitor.stop_all().await;
-    app.invalidate_all_configs().await;
-    Ok(imported)
+    let summary = with_db(app, move |conn| {
+        db::import_file(conn, &PathBuf::from(path), overwrite)
+    })
+    .await?;
+    if overwrite && summary.overwritten > 0 {
+        app.pool.invalidate_all().await;
+        app.live.stop_all().await;
+        app.monitor.stop_all().await;
+        app.invalidate_all_configs().await;
+    }
+    Ok(summary)
 }
 
 #[tauri::command]
 pub async fn export_connections(state: State<'_, AppState>, path: String) -> AppResult<()> {
     with_db(state.inner(), move |conn| {
         db::export_file(conn, &PathBuf::from(path))
+    })
+    .await
+}
+
+/// Exports just the selected connection, keeping its group for the restore.
+#[tauri::command]
+pub async fn export_connection(
+    state: State<'_, AppState>,
+    id: String,
+    path: String,
+) -> AppResult<()> {
+    with_db(state.inner(), move |conn| {
+        db::export_connection(conn, &id, &PathBuf::from(path))
     })
     .await
 }

@@ -13,6 +13,8 @@ import QuickConnectionsDialog, {
 } from "./features/connections/QuickConnectionsDialog";
 import ConnectionTree from "./features/tree/ConnectionTree";
 import DangerDialog from "./components/ui/DangerDialog";
+import Dialog from "./components/ui/Dialog";
+import Button from "./components/ui/Button";
 import { Icon } from "./components/ui/Icon";
 import {
   DEFAULT_SIDEBAR_WIDTH,
@@ -35,6 +37,7 @@ import type {
   ConnectionConfig,
   ConnectionGroup,
   ConnectionSummary,
+  ImportPreview,
   ServerActionView,
   ServerFacts,
   Settings,
@@ -94,6 +97,11 @@ export default function App() {
   const [closeAllOpen, setCloseAllOpen] = useState(false);
   const [closeAllBusy, setCloseAllBusy] = useState(false);
   const [revision, setRevision] = useState(0);
+  /** Backup restore waiting for the user to pick overwrite or skip. */
+  const [importPrompt, setImportPrompt] = useState<{
+    path: string;
+    preview: ImportPreview;
+  } | null>(null);
   /** Signals ConnectionTree to drop the cached view of an already-closed connection. */
   const [externalClose, setExternalClose] = useState<{ id: string; token: number } | null>(null);
 
@@ -479,6 +487,24 @@ export default function App() {
     applyCloseTabs(connectionTabIds(id));
   };
 
+  const finishImport = async (path: string, overwrite: boolean) => {
+    setImportPrompt(null);
+    try {
+      const summary = await ipc.importConnections(path, overwrite);
+      setRevision((v) => v + 1);
+      await loadLists();
+      notify(
+        t("app.imported", {
+          imported: summary.imported,
+          overwritten: summary.overwritten,
+          skipped: summary.skipped,
+        }),
+      );
+    } catch (e) {
+      notify(t("app.importFailed", { error: errMessage(e) }));
+    }
+  };
+
   const importConnections = async () => {
     const path = await open({
       multiple: false,
@@ -486,10 +512,14 @@ export default function App() {
     });
     if (typeof path !== "string") return;
     try {
-      const count = await ipc.importConnections(path);
-      setRevision((v) => v + 1);
-      await loadLists();
-      notify(t("app.imported", { count }));
+      // Scan first so the user decides what happens to connections that are
+      // already saved instead of silently overwriting or skipping them.
+      const preview = await ipc.previewImportConnections(path);
+      if (preview.conflicts.length > 0) {
+        setImportPrompt({ path, preview });
+        return;
+      }
+      await finishImport(path, false);
     } catch (e) {
       notify(t("app.importFailed", { error: errMessage(e) }));
     }
@@ -503,6 +533,20 @@ export default function App() {
     if (!path) return;
     try {
       await ipc.exportConnections(path);
+      notify(t("app.exported", { path }));
+    } catch (e) {
+      notify(t("app.exportFailed", { error: errMessage(e) }));
+    }
+  };
+
+  const exportConnection = async (connection: ConnectionSummary) => {
+    const path = await save({
+      defaultPath: `${connection.name.replace(/[\\/:*?"<>|]+/g, "_")}.json`,
+      filters: [{ name: t("app.importFilterName"), extensions: ["json"] }],
+    });
+    if (!path) return;
+    try {
+      await ipc.exportConnection(connection.id, path);
       notify(t("app.exported", { path }));
     } catch (e) {
       notify(t("app.exportFailed", { error: errMessage(e) }));
@@ -568,6 +612,7 @@ export default function App() {
                   revision={revision}
                   onAddConnection={openNewConnection}
                   onEditConnection={(id) => void openEditConnection(id)}
+                  onExportConnection={(connection) => void exportConnection(connection)}
                   onOpenServerTab={openServerTab}
                   onOpenKey={openKeyTab}
                   onOpenConsole={openConsoleTab}
@@ -733,6 +778,41 @@ export default function App() {
             }}
             onClose={() => setQuickPicker(null)}
           />
+        ) : null}
+
+        {importPrompt ? (
+          <Dialog
+            title={t("app.importConflictsTitle")}
+            width={520}
+            onClose={() => setImportPrompt(null)}
+            footer={
+              <>
+                <Button variant="primary" onClick={() => void finishImport(importPrompt.path, true)}>
+                  {t("app.importOverwrite")}
+                </Button>
+                <Button onClick={() => void finishImport(importPrompt.path, false)}>
+                  {t("app.importSkip")}
+                </Button>
+                <Button onClick={() => setImportPrompt(null)}>{t("common.cancel")}</Button>
+              </>
+            }
+          >
+            <p className="t-13">
+              {t("app.importConflictsHint", {
+                count: importPrompt.preview.conflicts.length,
+              })}
+            </p>
+            <ul className="mt-2 max-h-48 overflow-auto text-12 text-muted">
+              {importPrompt.preview.conflicts.map((conflict) => (
+                <li
+                  key={`${conflict.name}:${conflict.host}:${conflict.port}`}
+                  className="py-0.5"
+                >
+                  {conflict.name} — {conflict.host}:{conflict.port}
+                </li>
+              ))}
+            </ul>
+          </Dialog>
         ) : null}
 
         {closeAllOpen ? (

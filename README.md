@@ -34,11 +34,21 @@ The packaging command is Windows-only. Chinese sections below contain the full d
 ### 连接管理
 
 - 连接的新建、编辑、删除、复制，以及连接测试。
-- 连接分组；导入/导出 JSON 连接文件。
+- 连接分组；连接配置可整体或单条备份与恢复。
 - 支持普通 TCP 与 `rediss://` TLS；可选择忽略证书错误。
 - 每个连接可选 RESP2 或 RESP3；RESP3 握手不被服务端支持时回退到 RESP2，并在测试连接时给出提示。
 - SSH 隧道的字段可以保存，但当前版本不支持建立 SSH 隧道。
 - 自定义 CA / 客户端证书路径可以保存，但 TLS 层目前不会加载它们。
+
+### 连接备份与恢复
+
+- **全部导出（备份）**：工具栏“连接 Redis 服务器”菜单中的“全部导出（备份）”，导出全部连接与分组。
+- **单条导出（备份）**：连接右键菜单中的“导出备份（当前连接）”，只导出该连接及其所属分组。
+- 备份为 JSON 文件，包含格式标识、版本、导出时间、分组列表与连接条目；连接条目保留分组归属和 RESP2/RESP3 协议设置。
+- 导入兼容新旧两种格式：本应用导出的备份对象，以及旧版 RESP.app 的平铺数组文件。
+- 导入前先做只读预检，按“同名 + 同 host + 同 port”识别冲突；存在冲突时弹窗列出明细，由用户选择“覆盖现有连接”或“跳过重复项”，不会静默改写。
+- 覆盖会按原 id 原地更新，保留连接在树中的位置，并释放该连接的连接池、Live Update / MONITOR 订阅与配置缓存；跳过模式可安全重复导入，不会产生重复条目。
+- 备份文件包含**明文凭据**（密码、SSH 密码等），请妥善保管。
 
 ### 连接树与键浏览
 
@@ -195,9 +205,10 @@ dist-release\RedisDesktopManager_1.0.0_portable_x64.exe
 | 命令                                                       | 作用                              | 实测结果                                  |
 | ---------------------------------------------------------- | --------------------------------- | ----------------------------------------- |
 | `bun run check:types`                                      | `tsc --noEmit` 类型检查           | 通过                                      |
-| `bun run build`                                            | 类型检查 + `vp build`             | 通过；59 modules，产物在 `dist/`          |
-| `bun x vp check --no-fmt`                                  | Oxlint + 类型感知检查（不格式化） | 通过；43 files，无 warning/lint/type 错误 |
-| `cargo test --manifest-path src-tauri\Cargo.toml`          | Rust 单元测试                     | 67 passed，0 failed，1 ignored            |
+| `bun run build`                                            | 类型检查 + `vp build`             | 通过；67 modules，产物在 `dist/`          |
+| `bun x vp check --no-fmt`                                  | Oxlint + 类型感知检查（不格式化） | 通过；52 files，0 error、8 个既有 warning |
+| `cargo test --lib --manifest-path src-tauri\Cargo.toml`    | Rust 单元测试                     | 72 passed，0 failed，1 ignored            |
+| `cargo clippy --all-targets --manifest-path src-tauri\Cargo.toml` | Rust 静态检查（含测试目标） | 编译通过；40 条既有风格警告，本次改动无新增 |
 | `cargo check --tests --manifest-path src-tauri\Cargo.toml` | Rust 编译检查                     | 可用于快速检查测试代码编译                |
 
 被忽略的测试是只读冒烟测试 `read_only_smoke`，需要真实服务器环境才运行：
@@ -232,7 +243,7 @@ SQLite 表：
 
 注意：
 
-- 连接用户名、密码等凭据保存在本地 SQLite 中，**明文存储**，未使用 Windows DPAPI 加密。
+- 连接用户名、密码等凭据保存在本地 SQLite 中，**明文存储**，未使用 Windows DPAPI 加密；导出的连接备份文件同样包含明文凭据。
 - 应用不读取 `.env` / `.env.*`；这些文件只被 `.gitignore` 忽略。
 - 卸载或删除应用前如需保留配置，请备份上述 `resp.sqlite3`。
 

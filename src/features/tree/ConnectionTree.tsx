@@ -121,6 +121,7 @@ export default function ConnectionTree({
   revision,
   onAddConnection,
   onEditConnection,
+  onExportConnection,
   onOpenServerTab,
   onOpenKey,
   onOpenConsole,
@@ -141,6 +142,8 @@ export default function ConnectionTree({
   revision: number;
   onAddConnection: () => void;
   onEditConnection: (id: string) => void;
+  /** Backup the single selected connection instead of exporting everything. */
+  onExportConnection: (connection: ConnectionSummary) => void;
   onOpenServerTab: (connection: ConnectionSummary) => void;
   onOpenKey: (connectionId: string, db: number, key: string) => void;
   onOpenConsole: (connection: ConnectionSummary, db: number) => void;
@@ -1308,6 +1311,12 @@ export default function ConnectionTree({
         onClick: () => setDuplicatePrompt(connection),
       },
       {
+        key: "export",
+        label: t("tree.exportConnection"),
+        icon: "export",
+        onClick: () => onExportConnection(connection),
+      },
+      {
         key: "console",
         label: t("server.view.console"),
         shortcut: "Ctrl+T",
@@ -1968,6 +1977,7 @@ export default function ConnectionTree({
                     }
                     menuItems={menuFor(row)}
                     onSelect={activateRow}
+                    onContextSelect={(target) => setSelectedId(target.id)}
                     onToggle={toggleRow}
                     onApplyFilter={(dbKey, pattern) => void applyFilter(dbKey, pattern)}
                     onResetFilter={(dbKey) => void resetFilter(dbKey)}

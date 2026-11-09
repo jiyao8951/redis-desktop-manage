@@ -182,6 +182,27 @@ export interface FilterHistoryEntry {
   lastUsedAt: number;
 }
 
+/** Result of restoring a connection backup file. */
+export interface ImportSummary {
+  imported: number;
+  overwritten: number;
+  skipped: number;
+  groups: number;
+}
+
+/** An existing connection that collides with a backup entry. */
+export interface ImportConflict {
+  name: string;
+  host: string;
+  port: number;
+}
+
+/** Dry-run scan performed before restoring a backup file. */
+export interface ImportPreview {
+  total: number;
+  conflicts: ImportConflict[];
+}
+
 /**
  * A slice of a string value. The value is never sent whole; callers page
  * through chunks of `chunkSize` bytes.

@@ -8,6 +8,8 @@ import type {
   ConsoleReply,
   DatabaseInfo,
   FilterHistoryEntry,
+  ImportPreview,
+  ImportSummary,
   KeyMeta,
   KeyValueChunk,
   KeyValueInfo,
@@ -46,8 +48,13 @@ export const ipc = {
   duplicateConnection: (id: string) => invoke<ConnectionConfig>("duplicate_connection", { id }),
   testConnection: (config: ConnectionConfig) => invoke<TestResult>("test_connection", { config }),
   parseRedisUrl: (url: string) => invoke<ConnectionConfig>("parse_redis_url", { url }),
-  importConnections: (path: string) => invoke<number>("import_connections", { path }),
+  importConnections: (path: string, overwrite: boolean) =>
+    invoke<ImportSummary>("import_connections", { path, overwrite }),
+  previewImportConnections: (path: string) =>
+    invoke<ImportPreview>("preview_import_connections", { path }),
   exportConnections: (path: string) => invoke<void>("export_connections", { path }),
+  exportConnection: (id: string, path: string) =>
+    invoke<void>("export_connection", { id, path }),
 
   getSettings: () => invoke<Settings>("get_settings"),
   updateSettings: (settings: Settings) => invoke<Settings>("update_settings", { settings }),

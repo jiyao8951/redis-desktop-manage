@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -7,7 +8,8 @@ use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::models::connection::{
-    ConnectionConfig, ConnectionGroup, ConnectionSummary, FilterHistoryEntry,
+    ConnectionConfig, ConnectionGroup, ConnectionSummary, FilterHistoryEntry, ImportConflict,
+    ImportPreview, ImportSummary,
 };
 
 pub fn now_ms() -> i64 {
@@ -384,47 +386,445 @@ pub fn remember_filter(
 
 // ---- import / export ------------------------------------------------------
 
-pub fn import_file(conn: &Connection, path: &Path) -> AppResult<usize> {
+/// Marker written into exported backups.
+const BACKUP_FORMAT: &str = "redis-desktop-manager.connections";
+const BACKUP_VERSION: u32 = 2;
+
+fn group_name_of(value: &serde_json::Value) -> Option<String> {
+    let map = value.as_object()?;
+    ["groupName", "group_name", "group"]
+        .into_iter()
+        .find_map(|key| map.get(key).and_then(|value| value.as_str()))
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+}
+
+/// Duplicate identity used by import: the same name on the same host/port is
+/// treated as the connection that is already saved.
+fn connection_key(config: &ConnectionConfig) -> (String, String, u16) {
+    (
+        config.name.trim().to_lowercase(),
+        config.host.trim().to_lowercase(),
+        config.port,
+    )
+}
+
+/// A parsed backup connection plus the group name it belongs to.
+type BackupEntry = (Option<String>, ConnectionConfig);
+
+/// Reads either the wrapped backup layout or the original RESP.app flat array
+/// and validates every entry before any database write happens.
+fn read_backup(path: &Path) -> AppResult<(Vec<String>, Vec<BackupEntry>)> {
     let text = fs::read_to_string(path)?;
     let value: serde_json::Value = serde_json::from_str(&text)?;
-    let items = match value {
-        serde_json::Value::Array(items) => items,
-        serde_json::Value::Object(mut map) => map
-            .remove("connections")
-            .or_else(|| map.remove("items"))
-            .and_then(|value| value.as_array().cloned())
-            .ok_or_else(|| AppError::Invalid("No connections array in file".into()))?,
+
+    let (groups_value, items) = match value {
+        serde_json::Value::Array(items) => (Vec::new(), items),
+        serde_json::Value::Object(mut map) => {
+            let groups = map
+                .remove("groups")
+                .and_then(|value| value.as_array().cloned())
+                .unwrap_or_default();
+            let items = map
+                .remove("connections")
+                .or_else(|| map.remove("items"))
+                .and_then(|value| value.as_array().cloned())
+                .ok_or_else(|| AppError::Invalid("No connections array in file".into()))?;
+            (groups, items)
+        }
         _ => return Err(AppError::Invalid("Unsupported import file".into())),
     };
+
+    let mut group_names = Vec::new();
+    for group in &groups_value {
+        let name = match group {
+            serde_json::Value::String(name) => name.clone(),
+            serde_json::Value::Object(map) => map
+                .get("name")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            _ => continue,
+        };
+        let name = name.trim();
+        if !name.is_empty() {
+            group_names.push(name.to_string());
+        }
+    }
 
     // Parse and validate every entry before touching the database, then write
     // them in one transaction. A single bad row or a failure halfway through
     // rolls the whole import back instead of leaving the list half updated.
-    let mut configs: Vec<ConnectionConfig> = Vec::with_capacity(items.len());
+    let mut entries: Vec<BackupEntry> = Vec::with_capacity(items.len());
     for item in items {
+        let group_name = group_name_of(&item);
         let mut config: ConnectionConfig = serde_json::from_value(item)?;
         config.id = String::new();
         config.group_id = None;
         if config.name.trim().is_empty() {
             config.name = format!("{}:{}", config.host, config.port);
         }
-        configs.push(config);
+        entries.push((group_name, config));
     }
 
+    Ok((group_names, entries))
+}
+
+/// Dry run used by the restore dialog: reports every backup entry that would
+/// collide with an already saved connection.
+pub fn preview_import_file(conn: &Connection, path: &Path) -> AppResult<ImportPreview> {
+    let (_, entries) = read_backup(path)?;
+    let existing: HashSet<(String, String, u16)> = list_configs(conn)?
+        .iter()
+        .map(connection_key)
+        .collect();
+    let conflicts = entries
+        .iter()
+        .filter(|(_, config)| existing.contains(&connection_key(config)))
+        .map(|(_, config)| ImportConflict {
+            name: config.name.clone(),
+            host: config.host.clone(),
+            port: config.port,
+        })
+        .collect();
+    Ok(ImportPreview {
+        total: entries.len(),
+        conflicts,
+    })
+}
+
+/// `overwrite = false` skips colliding entries; `overwrite = true` updates the
+/// existing row in place, keeping its id so it stays the same tree item.
+pub fn import_file(conn: &Connection, path: &Path, overwrite: bool) -> AppResult<ImportSummary> {
+    let (group_names, entries) = read_backup(path)?;
+
     let transaction = conn.unchecked_transaction()?;
-    for config in &configs {
-        save_config(&transaction, config.clone())?;
+
+    // Group ids are local to each installation, so backups reference groups by
+    // name. Reuse an existing group with the same name (case-insensitive) or
+    // create the missing ones.
+    let mut group_ids: HashMap<String, String> = list_groups(&transaction)?
+        .into_iter()
+        .map(|group| (group.name.trim().to_lowercase(), group.id))
+        .collect();
+    let mut groups_created = 0usize;
+
+    for name in &group_names {
+        let key = name.to_lowercase();
+        if let std::collections::hash_map::Entry::Vacant(entry) = group_ids.entry(key) {
+            let created = save_group(&transaction, None, name)?;
+            entry.insert(created.id);
+            groups_created += 1;
+        }
     }
+
+    // Key -> existing id, so a collision can be skipped or overwritten in place.
+    let mut existing: HashMap<(String, String, u16), String> = list_configs(&transaction)?
+        .into_iter()
+        .map(|config| (connection_key(&config), config.id))
+        .collect();
+
+    let mut imported = 0usize;
+    let mut overwritten = 0usize;
+    let mut skipped = 0usize;
+    for (group_name, mut config) in entries {
+        if let Some(name) = group_name {
+            let key = name.trim().to_lowercase();
+            if let std::collections::hash_map::Entry::Vacant(entry) = group_ids.entry(key.clone()) {
+                let created = save_group(&transaction, None, name.trim())?;
+                entry.insert(created.id);
+                groups_created += 1;
+            }
+            config.group_id = group_ids.get(&key).cloned();
+        }
+
+        let key = connection_key(&config);
+        if let Some(existing_id) = existing.get(&key) {
+            if overwrite {
+                config.id = existing_id.clone();
+                save_config(&transaction, config)?;
+                overwritten += 1;
+            } else {
+                skipped += 1;
+            }
+            continue;
+        }
+
+        let saved = save_config(&transaction, config)?;
+        existing.insert(key, saved.id);
+        imported += 1;
+    }
+
     transaction.commit()?;
-    Ok(configs.len())
+    Ok(ImportSummary {
+        imported,
+        overwritten,
+        skipped,
+        groups: groups_created,
+    })
+}
+
+fn write_backup(
+    path: &Path,
+    configs: &[ConnectionConfig],
+    groups: &[ConnectionGroup],
+) -> AppResult<()> {
+    let group_names: HashMap<&str, &str> = groups
+        .iter()
+        .map(|group| (group.id.as_str(), group.name.as_str()))
+        .collect();
+
+    let connections: Vec<serde_json::Value> = configs
+        .iter()
+        .map(|config| {
+            let mut value = config.to_legacy_json();
+            if let serde_json::Value::Object(map) = &mut value {
+                // Backup fidelity: the legacy schema carries neither the
+                // protocol nor the group, so add both as extra keys. Legacy
+                // importers ignore unknown keys.
+                map.insert("protocol".into(), serde_json::json!(config.protocol));
+                if let Some(name) = config
+                    .group_id
+                    .as_deref()
+                    .and_then(|id| group_names.get(id))
+                {
+                    map.insert("groupName".into(), serde_json::json!(name));
+                }
+            }
+            value
+        })
+        .collect();
+
+    let payload = serde_json::json!({
+        "format": BACKUP_FORMAT,
+        "version": BACKUP_VERSION,
+        "exportedAt": now_ms(),
+        "groups": groups
+            .iter()
+            .map(|group| serde_json::json!({ "name": group.name, "sortOrder": group.sort_order }))
+            .collect::<Vec<_>>(),
+        "connections": connections,
+    });
+    fs::write(path, serde_json::to_string_pretty(&payload)?)?;
+    Ok(())
 }
 
 pub fn export_file(conn: &Connection, path: &Path) -> AppResult<()> {
     let configs = list_configs(conn)?;
-    let payload: Vec<serde_json::Value> = configs
-        .iter()
-        .map(ConnectionConfig::to_legacy_json)
+    let groups = list_groups(conn)?;
+    write_backup(path, &configs, &groups)
+}
+
+/// Exports a single saved connection together with the group it belongs to.
+pub fn export_connection(conn: &Connection, id: &str, path: &Path) -> AppResult<()> {
+    let config = get_config(conn, id)?;
+    let groups: Vec<ConnectionGroup> = list_groups(conn)?
+        .into_iter()
+        .filter(|group| Some(group.id.as_str()) == config.group_id.as_deref())
         .collect();
-    fs::write(path, serde_json::to_string_pretty(&payload)?)?;
-    Ok(())
+    write_backup(path, std::slice::from_ref(&config), &groups)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn memory_db() -> Connection {
+        let mut conn = Connection::open_in_memory().unwrap();
+        crate::db::migrations::migrate(&mut conn).unwrap();
+        conn
+    }
+
+    fn temp_path() -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("rdm-connections-{}.json", Uuid::new_v4()))
+    }
+
+    #[test]
+    fn export_and_import_restore_groups_and_protocol() {
+        let source = memory_db();
+        let group = save_group(&source, None, "Production").unwrap();
+        let config = save_config(
+            &source,
+            ConnectionConfig {
+                name: "cache".into(),
+                host: "10.0.0.5".into(),
+                port: 6380,
+                group_id: Some(group.id.clone()),
+                protocol: "resp3".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(config.protocol, "resp3");
+
+        let path = temp_path();
+        export_file(&source, &path).unwrap();
+
+        let text = fs::read_to_string(&path).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(value["format"], BACKUP_FORMAT);
+        assert_eq!(value["groups"][0]["name"], "Production");
+        assert_eq!(value["connections"][0]["protocol"], "resp3");
+        assert_eq!(value["connections"][0]["groupName"], "Production");
+
+        let target = memory_db();
+        let summary = import_file(&target, &path, false).unwrap();
+        assert_eq!(summary.imported, 1);
+        assert_eq!(summary.skipped, 0);
+        assert_eq!(summary.groups, 1);
+
+        let restored = list_configs(&target).unwrap();
+        assert_eq!(restored.len(), 1);
+        assert_eq!(restored[0].protocol, "resp3");
+        let groups = list_groups(&target).unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].name, "Production");
+        assert_eq!(
+            restored[0].group_id.as_deref(),
+            Some(groups[0].id.as_str())
+        );
+
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn importing_the_same_backup_twice_is_idempotent() {
+        let source = memory_db();
+        save_config(
+            &source,
+            ConnectionConfig {
+                name: "main".into(),
+                host: "127.0.0.1".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let path = temp_path();
+        export_file(&source, &path).unwrap();
+
+        let target = memory_db();
+        let first = import_file(&target, &path, false).unwrap();
+        assert_eq!((first.imported, first.skipped), (1, 0));
+
+        let second = import_file(&target, &path, false).unwrap();
+        assert_eq!((second.imported, second.skipped), (0, 1));
+        assert_eq!(list_configs(&target).unwrap().len(), 1);
+
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn legacy_flat_array_files_stay_importable() {
+        let path = temp_path();
+        fs::write(
+            &path,
+            r#"[{"name":"legacy","host":"192.168.1.10","port":6379,"auth":"secret","ssl":true,"ssh_host":"bastion"}]"#,
+        )
+        .unwrap();
+
+        let db = memory_db();
+        let summary = import_file(&db, &path, false).unwrap();
+        assert_eq!(summary.imported, 1);
+
+        let configs = list_configs(&db).unwrap();
+        assert_eq!(configs[0].name, "legacy");
+        assert_eq!(configs[0].auth, "secret");
+        assert!(configs[0].ssl_enabled);
+        assert_eq!(configs[0].ssh_host, "bastion");
+
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn preview_reports_conflicts_and_overwrite_updates_in_place() {
+        let source = memory_db();
+        save_config(
+            &source,
+            ConnectionConfig {
+                name: "main".into(),
+                host: "127.0.0.1".into(),
+                auth: "from-backup".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let path = temp_path();
+        export_file(&source, &path).unwrap();
+
+        let target = memory_db();
+        let existing = save_config(
+            &target,
+            ConnectionConfig {
+                name: "main".into(),
+                host: "127.0.0.1".into(),
+                auth: "local".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let preview = preview_import_file(&target, &path).unwrap();
+        assert_eq!(preview.total, 1);
+        assert_eq!(preview.conflicts.len(), 1);
+        assert_eq!(preview.conflicts[0].name, "main");
+
+        let skipped = import_file(&target, &path, false).unwrap();
+        assert_eq!((skipped.imported, skipped.overwritten, skipped.skipped), (0, 0, 1));
+        assert_eq!(get_config(&target, &existing.id).unwrap().auth, "local");
+
+        let overwrite = import_file(&target, &path, true).unwrap();
+        assert_eq!(
+            (overwrite.imported, overwrite.overwritten, overwrite.skipped),
+            (0, 1, 0)
+        );
+        let restored = get_config(&target, &existing.id).unwrap();
+        assert_eq!(restored.auth, "from-backup");
+        assert_eq!(list_configs(&target).unwrap().len(), 1);
+
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn single_connection_export_contains_only_that_entry() {
+        let source = memory_db();
+        let group = save_group(&source, None, "Team").unwrap();
+        save_config(
+            &source,
+            ConnectionConfig {
+                name: "first".into(),
+                host: "10.1.1.1".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let second = save_config(
+            &source,
+            ConnectionConfig {
+                name: "second".into(),
+                host: "10.1.1.2".into(),
+                group_id: Some(group.id.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let path = temp_path();
+        export_connection(&source, &second.id, &path).unwrap();
+
+        let text = fs::read_to_string(&path).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(value["connections"].as_array().unwrap().len(), 1);
+        assert_eq!(value["connections"][0]["name"], "second");
+        assert_eq!(value["groups"].as_array().unwrap().len(), 1);
+        assert_eq!(value["groups"][0]["name"], "Team");
+
+        let target = memory_db();
+        let summary = import_file(&target, &path, false).unwrap();
+        assert_eq!(summary.imported, 1);
+        assert_eq!(list_configs(&target).unwrap()[0].name, "second");
+
+        let _ = fs::remove_file(&path);
+    }
 }
